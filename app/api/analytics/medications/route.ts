@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { Database, aql } from "arangojs";
 
 // Initialize ArangoDB connection
@@ -11,7 +11,7 @@ const db = new Database({
   },
 });
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Get top medications - simplified query
     const topMedicationsQuery = aql`
@@ -85,7 +85,7 @@ RETURN top2Medications
     // Create medications by condition with projected data
     // This avoids the complex nested query
     const medicationsByCondition = topConditions.map((condition) => {
-      const result: Record<string, any> = {
+      const result: Record<string, string | number> = {
         condition: condition,
       };
 

@@ -2,13 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Navigation from "../components/Navigation";
-import {
-  Search,
-  Filter,
-  ChevronDown,
-  ChevronRight,
-  Loader2,
-} from "lucide-react";
+import { Search, Filter, ChevronDown, ChevronRight } from "lucide-react";
+import Image from "next/image";
 
 // Define TypeScript interfaces for the data
 interface Patient {
@@ -25,7 +20,7 @@ interface Patient {
 
 interface PatientSectionProps {
   title: string;
-  items: any[];
+  items: string[];
 }
 
 export default function PatientsExplorer() {
@@ -133,10 +128,12 @@ export default function PatientsExplorer() {
           <div className="w-1/2 overflow-auto border-r">
             {isLoading ? (
               <div className="h-full flex items-center justify-center flex-col">
-                <img
+                <Image
                   src="/arango.svg"
                   alt="Loading"
-                  className="w-48 h-48 animate-pulse"
+                  width={192}
+                  height={192}
+                  className="animate-pulse"
                 />
                 <p className="text-indigo-600 mt-4 font-medium">
                   Loading data...
@@ -200,10 +197,12 @@ export default function PatientsExplorer() {
           <div className="w-1/2 overflow-auto">
             {isLoadingPatient ? (
               <div className="h-full flex items-center justify-center flex-col">
-                <img
+                <Image
                   src="/arango.svg"
                   alt="Loading"
-                  className="w-48 h-48 animate-pulse"
+                  width={192}
+                  height={192}
+                  className="animate-pulse"
                 />
                 <p className="text-indigo-600 mt-4 font-medium">
                   Loading patient data...

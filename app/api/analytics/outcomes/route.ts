@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { Database, aql } from "arangojs";
 
 // Initialize ArangoDB connection
@@ -11,7 +11,7 @@ const db = new Database({
   },
 });
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Get top conditions efficiently first
     const topConditionsQuery = aql`

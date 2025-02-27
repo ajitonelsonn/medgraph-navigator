@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Navigation from "../components/Navigation";
+import Image from "next/image";
 import {
   BarChart,
   Bar,
@@ -25,7 +26,6 @@ import {
   Filter,
   RefreshCw,
   Download,
-  Loader2,
 } from "lucide-react";
 
 // Define proper TypeScript interfaces for your data
@@ -624,10 +624,12 @@ export default function Analytics() {
         <div className="flex-1 overflow-auto p-6 bg-gray-50">
           {isLoading ? (
             <div className="h-full flex items-center justify-center flex-col">
-              <img
+              <Image
                 src="/arango.svg"
                 alt="Loading"
-                className="w-48 h-48 animate-pulse"
+                width={192}
+                height={192}
+                className="animate-pulse"
               />
               <p className="text-indigo-600 mt-4 font-medium">
                 Loading data...

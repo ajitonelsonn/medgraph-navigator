@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { Database, aql } from "arangojs";
 
 // Initialize ArangoDB connection
@@ -11,7 +11,7 @@ const db = new Database({
   },
 });
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // 1. Get top conditions - this query is already efficient
     const topConditionsQuery = aql`
@@ -151,7 +151,7 @@ FOR id IN topConditionIds
           : 1.1; // Higher in fall
 
       // Base values that will be multiplied by season
-      const baseValues = {
+      const baseValues: Record<string, number> = {
         // These are just example base counts
         [top3Conditions[0] || ""]: 650,
         [top3Conditions[1] || ""]: 480,
