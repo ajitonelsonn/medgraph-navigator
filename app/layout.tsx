@@ -1,3 +1,4 @@
+// app/layout.tsx
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
@@ -17,7 +18,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <div className="min-h-screen bg-gray-50">{children}</div>
+        <div className="min-h-screen bg-gray-50 flex flex-col">
+          <div className="flex-grow">{children}</div>
+        </div>
       </body>
     </html>
   );
