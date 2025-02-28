@@ -28,6 +28,7 @@ import {
   Download,
 } from "lucide-react";
 import { getCachedData } from "../utils/cache";
+import PopupNotification from "../components/PopupNotification";
 // Define proper TypeScript interfaces for your data
 interface DemographicsData {
   genderDistribution: Array<{ name: string; value: number }>;
@@ -597,6 +598,13 @@ export default function Analytics() {
     <div className="flex h-screen">
       <Navigation />
       <main className="ml-64 flex-1 flex flex-col">
+        {error && (
+          <PopupNotification
+            message={error}
+            type="error"
+            onClose={() => setError(null)}
+          />
+        )}
         <div className="p-6 bg-white border-b">
           <h1 className="text-2xl font-bold text-gray-900">
             Analytics Dashboard

@@ -1,0 +1,25 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - npm ci --cache .npm --prefer-offline
+        # Create .env file with environment variables
+        - echo "NEXT_PUBLIC_API_BASE_URL=$API_BASE_URL" >> .env
+        - echo "ARANGODB_DATABASE=$ARANGODB_DATABASE" >> .env
+        - echo "ARANGODB_URL=$ARANGODB_URL" >> .env
+        - echo "ARANGODB_USERNAME=$ARANGODB_USERNAME" >> .env
+        - echo "ARANGODB_PASSWORD=$ARANGODB_PASSWORD" >> .env
+        - echo "TOGETHER_AI_API_KEY=$TOGETHER_AI_API_KEY" >> .env
+        - echo "TOGETHER_AI_BASE_URL=$TOGETHER_AI_BASE_URL" >> .env
+    build:
+      commands:
+        - npm run build
+  artifacts:
+    baseDirectory: .next
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - .next/cache/**/*
+      - .npm/**/*
