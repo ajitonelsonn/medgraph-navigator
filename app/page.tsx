@@ -13,7 +13,7 @@ import {
 import Link from "next/link";
 import Image from "next/image";
 import PopupNotification from "./components/PopupNotification";
-import { getCachedData } from "./utils/cache"; // Import the cache utility
+import { getCachedData } from "./utils/cache";
 
 // Define timeout constants
 const FETCH_TIMEOUT = 120000;
@@ -106,9 +106,7 @@ export default function Home() {
         if (error.message.includes("timed out")) {
           setError("Connection to database timed out. Please try again later.");
         } else {
-          setError(
-            "Connection to database failure. It's maybe trial is ended to use ArangoDB."
-          );
+          setError(`Error: ${error.message}`);
         }
 
         // Set default fallback data in case of error

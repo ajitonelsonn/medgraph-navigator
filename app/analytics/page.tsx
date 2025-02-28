@@ -27,8 +27,7 @@ import {
   RefreshCw,
   Download,
 } from "lucide-react";
-import { getCachedData } from "../utils/cache"; // Import the cache utility
-
+import { getCachedData } from "../utils/cache";
 // Define proper TypeScript interfaces for your data
 interface DemographicsData {
   genderDistribution: Array<{ name: string; value: number }>;
