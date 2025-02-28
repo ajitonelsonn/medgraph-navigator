@@ -1,6 +1,7 @@
 // app/api/dashboard/stats/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { Database, aql } from "arangojs";
+import { aql } from "arangojs";
+import { db } from "@/app/utils/db";
 
 // Define the stats interface
 interface DashboardStats {
@@ -13,16 +14,6 @@ interface DashboardStats {
   cacheNotice?: string;
   // Remove uniqueConditions and riskPatients since they're not used
 }
-
-// Initialize ArangoDB connection
-const db = new Database({
-  url: process.env.ARANGODB_URL,
-  databaseName: process.env.ARANGODB_DATABASE,
-  auth: {
-    username: process.env.ARANGODB_USERNAME || "root",
-    password: process.env.ARANGODB_PASSWORD || "",
-  },
-});
 
 // Cache for stats - values will be updated every 10 minutes
 let statsCache: {

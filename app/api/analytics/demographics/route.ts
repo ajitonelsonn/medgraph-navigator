@@ -1,15 +1,6 @@
 import { NextResponse } from "next/server";
-import { Database, aql } from "arangojs";
-
-// Initialize ArangoDB connection
-const db = new Database({
-  url: process.env.ARANGODB_URL,
-  databaseName: process.env.ARANGODB_DATABASE,
-  auth: {
-    username: process.env.ARANGODB_USERNAME || "root",
-    password: process.env.ARANGODB_PASSWORD || "",
-  },
-});
+import { aql } from "arangojs";
+import { db } from "@/app/utils/db";
 
 export async function GET() {
   try {
