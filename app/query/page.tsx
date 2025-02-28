@@ -301,7 +301,7 @@ export default function QueryPage() {
       const yearMatches = userQuery.match(/\b(19|20)\d{2}\b/g);
 
       if (hasYearWithNoBirthMatches(yearMatches, userQuery, data.result)) {
-        addResponseWithYearWarning(data.result, userQuery, yearMatches[0]);
+        addResponseWithYearWarning(data.result, userQuery, yearMatches![0]);
       } else {
         addStandardResponse(data.result, userQuery);
       }
