@@ -167,9 +167,9 @@ export default function Home() {
                 <div className="space-y-4 text-gray-600">
                   <p>
                     MedGraph Navigator is a cutting-edge healthcare analytics
-                    platform built on ArangoDB's powerful graph capabilities.
-                    Our application provides medical professionals with deep
-                    insights into patient data, enabling better care
+                    platform built on ArangoDB&apos;s powerful graph
+                    capabilities. Our application provides medical professionals
+                    with deep insights into patient data, enabling better care
                     coordination and risk assessment.
                   </p>
                   <p>
