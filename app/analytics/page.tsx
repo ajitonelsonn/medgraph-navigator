@@ -27,6 +27,7 @@ import {
   RefreshCw,
   Download,
 } from "lucide-react";
+import { getCachedData } from "../utils/cache"; // Import the cache utility
 
 // Define proper TypeScript interfaces for your data
 interface DemographicsData {
@@ -69,10 +70,49 @@ interface AnalyticsData {
   outcomes: OutcomesData;
 }
 
+const FETCH_TIMEOUT = 120000;
+
+// Function to fetch data with timeout
+async function fetchDataWithTimeout<T>(
+  url: string,
+  timeoutMs = FETCH_TIMEOUT
+): Promise<T> {
+  // Create an AbortController for the fetch
+  const controller = new AbortController();
+  const { signal } = controller;
+
+  // Create a timeout that will abort the fetch if it takes too long
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal });
+
+    // Clear the timeout as we got a response
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+
+    return (await response.json()) as T;
+  } catch (error: any) {
+    // Clear the timeout to prevent memory leaks
+    clearTimeout(timeoutId);
+
+    // Check if the error was due to a timeout
+    if (error.name === "AbortError") {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
+
+    throw error;
+  }
+}
+
 export default function Analytics() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("demographics");
   const [timeRange, setTimeRange] = useState("all");
+  const [error, setError] = useState<string | null>(null);
 
   // Initialize with proper default values for each data structure
   const [data, setData] = useState<AnalyticsData>({
@@ -102,20 +142,31 @@ export default function Analytics() {
   // Load data for the active tab
   useEffect(() => {
     setIsLoading(true);
+    setError(null);
 
     async function fetchData() {
       try {
-        const response = await fetch(`/api/analytics/${activeTab}`);
-        if (!response.ok) throw new Error("Failed to fetch analytics data");
+        // Create a cache key that includes both tab and time range
+        const cacheKey = `analytics-${activeTab}-${timeRange}`;
 
-        const newData = await response.json();
+        // Use the generic cache utility with the correct type
+        const fetchFn = async () => {
+          return await fetchDataWithTimeout<any>(
+            `/api/analytics/${activeTab}?timeRange=${timeRange}`
+          );
+        };
+
+        // Get data from cache or fetch it if not cached/expired
+        const newData = await getCachedData<any>(cacheKey, fetchFn);
 
         setData((prevData) => ({
           ...prevData,
           [activeTab]: newData,
         }));
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error fetching analytics data:", error);
+        setError(`Failed to load data: ${error.message}`);
+
         // Provide fallback data in case of error
         setData((prevData) => ({
           ...prevData,
@@ -127,6 +178,40 @@ export default function Analytics() {
 
     fetchData();
   }, [activeTab, timeRange]);
+
+  // Handle refresh button click
+  const handleRefresh = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Force fresh data by bypassing cache
+      const newData = await fetchDataWithTimeout<any>(
+        `/api/analytics/${activeTab}?timeRange=${timeRange}&fresh=true`
+      );
+
+      // Update data state
+      setData((prevData) => ({
+        ...prevData,
+        [activeTab]: newData,
+      }));
+
+      // Update cache with fresh data
+      const cacheKey = `analytics-${activeTab}-${timeRange}`;
+      localStorage.setItem(
+        cacheKey,
+        JSON.stringify({
+          data: newData,
+          timestamp: Date.now(),
+        })
+      );
+    } catch (error: any) {
+      console.error("Error refreshing data:", error);
+      setError(`Failed to refresh data: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const COLORS = [
     "#0088FE",
@@ -593,27 +678,7 @@ export default function Analytics() {
               </button>
               <button
                 className="p-2 rounded-md text-gray-500 hover:bg-gray-100"
-                onClick={() => {
-                  setIsLoading(true);
-                  // Re-fetch the data for the current tab
-                  fetch(`/api/analytics/${activeTab}`)
-                    .then((res) => {
-                      if (!res.ok) throw new Error("Failed to fetch data");
-                      return res.json();
-                    })
-                    .then((newData) => {
-                      setData((prevData) => ({
-                        ...prevData,
-                        [activeTab]: newData,
-                      }));
-                    })
-                    .catch((err) => {
-                      console.error("Error refreshing data:", err);
-                    })
-                    .finally(() => {
-                      setIsLoading(false);
-                    });
-                }}
+                onClick={handleRefresh}
               >
                 <RefreshCw className="h-4 w-4" />
               </button>
@@ -622,6 +687,19 @@ export default function Analytics() {
         </div>
 
         <div className="flex-1 overflow-auto p-6 bg-gray-50">
+          {/* Display error message if there is one */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6">
+              <p>{error}</p>
+              <button
+                onClick={handleRefresh}
+                className="text-sm font-medium hover:underline mt-1"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+
           {isLoading ? (
             <div className="h-full flex items-center justify-center flex-col">
               <Image

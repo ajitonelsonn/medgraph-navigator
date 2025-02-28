@@ -13,6 +13,46 @@ import {
 import Link from "next/link";
 import Image from "next/image";
 import PopupNotification from "./components/PopupNotification";
+import { getCachedData } from "./utils/cache"; // Import the cache utility
+
+// Define timeout constants
+const FETCH_TIMEOUT = 120000;
+
+// Function to fetch data with timeout
+async function fetchDataWithTimeout<T>(
+  url: string,
+  timeoutMs = FETCH_TIMEOUT
+): Promise<T> {
+  // Create an AbortController for the fetch
+  const controller = new AbortController();
+  const { signal } = controller;
+
+  // Create a timeout that will abort the fetch if it takes too long
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal });
+
+    // Clear the timeout as we got a response
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+
+    return (await response.json()) as T;
+  } catch (error: any) {
+    // Clear the timeout to prevent memory leaks
+    clearTimeout(timeoutId);
+
+    // Check if the error was due to a timeout
+    if (error.name === "AbortError") {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
+
+    throw error;
+  }
+}
 
 // Define TypeScript interfaces
 interface DatabaseStats {
@@ -48,17 +88,29 @@ export default function Home() {
   useEffect(() => {
     const fetchDatabaseStats = async () => {
       try {
-        const response = await fetch("/api/dashboard/stats");
-        if (!response.ok) {
-          throw new Error("Failed to fetch database statistics");
-        }
-        const data = await response.json();
+        // Use the cache utility to get or fetch dashboard stats
+        const data = await getCachedData<DatabaseStats>(
+          "dashboard-stats",
+          async () => {
+            return await fetchDataWithTimeout<DatabaseStats>(
+              "/api/dashboard/stats"
+            );
+          }
+        );
+
         setStats(data);
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error fetching database statistics:", error);
-        setError(
-          "Connection to database failure. It's maybe trial is ended to use ArangoDB."
-        ); // Set error message
+
+        // Set appropriate error message based on the error
+        if (error.message.includes("timed out")) {
+          setError("Connection to database timed out. Please try again later.");
+        } else {
+          setError(
+            "Connection to database failure. It's maybe trial is ended to use ArangoDB."
+          );
+        }
+
         // Set default fallback data in case of error
         setStats({
           totalPatients: 0,
@@ -77,6 +129,55 @@ export default function Home() {
 
     fetchDatabaseStats();
   }, []);
+
+  // Handle refresh button click
+  const handleRefresh = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Force fresh data by bypassing cache
+      const freshData = await fetchDataWithTimeout<DatabaseStats>(
+        "/api/dashboard/stats"
+      );
+      setStats(freshData);
+
+      // Update cache with fresh data
+      localStorage.setItem(
+        "dashboard-stats",
+        JSON.stringify({
+          data: freshData,
+          timestamp: Date.now(),
+        })
+      );
+    } catch (error: any) {
+      console.error("Error refreshing data:", error);
+
+      if (error.message.includes("timed out")) {
+        setError("Connection to database timed out. Please try again later.");
+      } else {
+        setError(
+          "Connection to database failure. It's maybe trial is ended to use ArangoDB."
+        );
+      }
+
+      // Keep the previous stats if available
+      if (!stats) {
+        setStats({
+          totalPatients: 0,
+          totalEncounters: 0,
+          uniqueConditions: 0,
+          riskPatients: 0,
+          nodesInGraph: 0,
+          edgesInGraph: 0,
+          connectionStatus: false,
+          apiStatus: false,
+        });
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -111,6 +212,13 @@ export default function Home() {
             </div>
 
             <div className="flex items-center space-x-2">
+              <button
+                onClick={handleRefresh}
+                className="mr-2 p-2 rounded-md text-gray-500 hover:bg-gray-100"
+                title="Refresh data"
+              >
+                <Activity className="w-4 h-4" />
+              </button>
               <StatusPill
                 isGood={stats?.connectionStatus || false}
                 goodText="System Online"
