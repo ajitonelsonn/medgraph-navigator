@@ -1,4 +1,3 @@
-// app/query/page.tsx
 "use client";
 
 import React, { useState, useRef } from "react";
@@ -22,6 +21,13 @@ interface Message {
   content: string | React.ReactNode;
   details?: QueryDetails | null;
   isGreeting?: boolean;
+}
+
+interface IntentResponse {
+  intent: "greeting" | "medical_query" | "off_topic";
+  confidence: number;
+  message: string;
+  shouldProcessQuery: boolean;
 }
 
 // ---------- UTILITY FUNCTIONS ----------
@@ -219,11 +225,34 @@ export default function QueryPage() {
     setIsLoading(true);
 
     try {
-      const data = await fetchQueryResults(query);
+      // First, check intent with the intent detection API
+      const intentResponse = await fetch("/api/detect-intent", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query }),
+      });
 
-      if (isConversationalResponse(data)) {
-        handleConversationalResponse(data);
+      if (!intentResponse.ok) {
+        throw new Error(`Intent API error: ${intentResponse.status}`);
+      }
+
+      const intentData = (await intentResponse.json()) as IntentResponse;
+
+      // If it's not a database query, just respond with the intent message
+      if (!intentData.shouldProcessQuery) {
+        setConversation((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: intentData.message,
+            isGreeting: intentData.intent === "greeting",
+          },
+        ]);
       } else {
+        // It's a database query, proceed to the query API
+        const data = await fetchQueryResults(query);
         await handleDatabaseQueryResponse(data, query);
       }
 
@@ -266,27 +295,6 @@ export default function QueryPage() {
     }
 
     return await response.json();
-  };
-
-  /**
-   * Checks if the response is conversational (greeting or off-topic)
-   */
-  const isConversationalResponse = (data: any) => {
-    return data.action === "respond_to_user";
-  };
-
-  /**
-   * Handles conversational responses (greetings, off-topic)
-   */
-  const handleConversationalResponse = (data: any) => {
-    setConversation((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        content: data.conclusion,
-        isGreeting: data.thought.includes("greeting"),
-      },
-    ]);
   };
 
   /**
@@ -411,14 +419,14 @@ export default function QueryPage() {
    * Handles query errors
    */
   const handleQueryError = (error: any) => {
-    console.error("Error querying database:", error);
+    console.error("Error processing query:", error);
 
     setConversation((prev) => [
       ...prev,
       {
         role: "assistant",
         content:
-          "Sorry, I encountered an error processing your query. Please try again.",
+          "Sorry, I encountered an error processing your query. The database might be unavailable. Please try again later.",
       },
     ]);
   };
@@ -653,11 +661,6 @@ export default function QueryPage() {
       label: "Patients born in 2016",
       className: "text-indigo-600 bg-indigo-50 hover:bg-indigo-100",
     },
-    {
-      text: "Hello, how can you help me?",
-      label: "Say hello",
-      className: "text-green-600 bg-green-50 hover:bg-green-100",
-    },
   ];
 
   // ---------- COMPONENT RENDER ----------
@@ -705,7 +708,7 @@ export default function QueryPage() {
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Query the medical database or just say hello..."
+                  placeholder="Query the medical database..."
                   className="w-full p-3 pr-12 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   disabled={isLoading}
                 />
