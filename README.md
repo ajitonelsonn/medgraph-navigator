@@ -1,38 +1,191 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MedGraph Navigator 🏥
 
-## Getting Started
+<div align="center">
 
-First, run the development server:
+<img src="https://img.shields.io/badge/ArangoDB-3.10+-orange.svg" alt="ArangoDB">
+<img src="https://img.shields.io/badge/React-19.0-blue?style=flat-square&logo=react" alt="React">
+<img src="https://img.shields.io/badge/Together%20AI-Llama%203.3-yellow?style=flat-square" alt="Together AI">
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+<img src="https://img.shields.io/badge/Next.js-000000?style=flat-square&logo=next.js" alt="Next.js">
+<img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License">
+  <br>
+  <strong>Patient Journey & Risk Analytics Platform powered by GraphRAG</strong>
+</div>
+
+A comprehensive healthcare analytics platform built for the [ArangoDB Hackathon: Building the Next-Gen Agentic App with GraphRAG & NVIDIA cuGraph](https://arangodbhackathon.devpost.com/).
+
+[![MedGraph Navigator Demo](/public/ss_home.png)](https://medgraph-navigator.onrender.com)
+
+## 🚀 Live Demo
+
+Experience MedGraph Navigator live: [https://medgraph-navigator.onrender.com](https://medgraph-navigator.onrender.com)
+
+## 🔍 Overview
+
+MedGraph Navigator is a next-generation healthcare analytics platform that combines the power of graph databases with large language models to provide medical professionals with deep insights into patient data. By leveraging GraphRAG (Graph-based Retrieval Augmented Generation) technology, the platform enables:
+
+- Natural language querying of complex medical data
+- Visual exploration of patient journeys through medical systems
+- Risk factor identification and analysis
+- Discovery of treatment patterns and outcomes
+- Comprehensive healthcare analytics dashboards
+
+## ✨ Key Features
+
+- **Natural Language Query Interface** - Query the medical database using everyday language
+- **Patient Explorer** - Visualize and analyze individual patient journeys
+- **Analytics Dashboard** - Comprehensive visualizations of healthcare metrics
+- **Intent Detection** - AI-powered understanding of query intent
+- **GraphRAG Implementation** - Combines graph traversal with LLM reasoning
+
+## 🛠️ Technology Stack
+
+- **Frontend**: Next.js 15, React 19, TailwindCSS, Recharts
+- **Backend**: Next.js API Routes
+- **Database**: ArangoDB Graph Database
+- **AI/ML**: LangChain, Together AI (Llama 3.2)
+- **Deployment**: Render.com
+
+## 🏗️ System Architecture
+
+MedGraph Navigator follows a modern, layered architecture:
+
+```mermaid
+graph TB
+    User([User]) --> NextApp["Next.js Application"]
+
+    subgraph "Frontend Layer"
+        NextApp --> Pages["Pages (Home, Patient Explorer, Query, Analytics)"]
+        NextApp --> Components["UI Components"]
+    end
+
+    subgraph "API Layer"
+        NextApp --> APIRoutes["Next.js API Routes"]
+        APIRoutes --> QueryAPI["Query Processing API"]
+        APIRoutes --> PatientAPI["Patient Data APIs"]
+        APIRoutes --> AnalyticsAPI["Analytics APIs"]
+    end
+
+    subgraph "Integration Layer"
+        QueryAPI --> LangChain["LangChain Integration"]
+        LangChain --> TogetherAI["Together AI (LLM)"]
+        APIRoutes --> ArangoClient["ArangoDB Client"]
+    end
+
+    subgraph "Data Layer"
+        ArangoClient --> ArangoDB["ArangoDB Graph Database"]
+        ArangoDB --> MedicalData["Medical Graph Data"]
+    end
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🔧 Installation & Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Prerequisites
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Node.js 18+ and npm
+- ArangoDB 3.10+
+- Together AI API key
 
-## Learn More
+### Local Development
 
-To learn more about Next.js, take a look at the following resources:
+1. Clone the repository:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+   ```bash
+   git clone https://github.com/ajitonelsonn/medgraph-navigator.git
+   cd medgraph-navigator
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+2. Install dependencies:
 
-## Deploy on Vercel
+   ```bash
+   npm install
+   ```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+3. Set up environment variables:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+   ```bash
+   cp .env.example .env.local
+   ```
 
-[![Netlify Status](https://api.netlify.com/api/v1/badges/fe276bf1-e4cd-4d36-a1a6-cccf7ac6d3d3/deploy-status)](https://app.netlify.com/sites/medgraph-navigator/deploys)
+   Edit `.env.local` and add your ArangoDB and Together AI credentials.
+
+4. Prepare your ArangoDB database:
+
+   - Follow the setup instructions in the [H_ArngoDB repository](https://github.com/ajitonelsonn/H_ArngoDB) to load the Synthea medical dataset
+
+5. Run the development server:
+
+   ```bash
+   npm run dev
+   ```
+
+6. Open [http://localhost:3000](http://localhost:3000) in your browser
+
+### Production Deployment
+
+For production deployment to Render.com:
+
+1. Fork this repository
+2. Create a new Web Service on Render
+3. Link your GitHub repository
+4. Configure environment variables
+5. Deploy!
+
+## 📊 Usage Examples
+
+### Querying the Medical Database
+
+MedGraph Navigator allows natural language queries against the medical database:
+
+- "How many patients have the race 'white'?"
+- "List 10 patients with their birthdates and genders"
+- "What is the most common race among patients?"
+- "Show me patients born in 2016"
+
+### Analytics Dashboards
+
+The Analytics section provides comprehensive healthcare insights:
+
+- Demographics analysis
+- Condition prevalence and trends
+- Medication usage patterns
+- Treatment outcomes
+
+## 📁 Project Structure
+
+```
+medgraph-navigator/
+├── app/                  # Next.js app directory
+│   ├── analytics/        # Analytics dashboard
+│   ├── api/              # API routes
+│   ├── components/       # Shared components
+│   ├── patients/         # Patient explorer
+│   ├── query/            # Query interface
+│   └── utils/            # Utility functions
+├── public/               # Static assets
+├── styles/               # Global styles
+├── next.config.js        # Next.js configuration
+└── package.json          # Project dependencies
+```
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 👏 Acknowledgments
+
+- [ArangoDB](https://www.arangodb.com/) for the powerful graph database
+- [NVIDIA Rapids cuGraph](https://github.com/rapidsai/cugraph) for GPU-accelerated graph analytics
+- [Synthea](https://synthea.mitre.org/) for the synthetic healthcare dataset
+- [Together AI](https://together.ai/) for the LLM infrastructure
+- [ArangoDB Hackathon](https://arangodbhackathon.devpost.com/) for the inspiration
+
+## 📬 Contact
+
+For questions or feedback, please reach out via GitHub Issues or contact:
+
+- GitHub: [@ajitonelsonn](https://github.com/ajitonelsonn)
+
+---
+
+Made with ❤️ in Timor-Leste 🇹🇱
