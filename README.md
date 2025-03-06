@@ -22,7 +22,7 @@ Experience MedGraph Navigator live: [https://medgraph-navigator.onrender.com](ht
 
 ## 🔍 Overview
 
-MedGraph Navigator is a next-generation healthcare analytics platform that combines the power of graph databases with large language models to provide medical professionals with deep insights into patient data. By leveraging GraphRAG (Graph-based Retrieval Augmented Generation) technology, the platform enables:
+MedGraph Navigator is a next-generation healthcare analytics platform that harnesses the power of graph databases and large language models (LLMs) to provide medical professionals with deep, actionable insights into patient data. Built on ArangoDB’s advanced graph capabilities and enhanced with GraphRAG (Graph-based Retrieval Augmented Generation) technology, MedGraph Navigator revolutionizes healthcare analytics by enabling:
 
 - Natural language querying of complex medical data
 - Visual exploration of patient journeys through medical systems

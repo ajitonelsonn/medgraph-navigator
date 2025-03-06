@@ -276,7 +276,11 @@ export default function Home() {
                     platform built on ArangoDB&apos;s powerful graph
                     capabilities. Our application provides medical professionals
                     with deep insights into patient data, enabling better care
-                    coordination and risk assessment.
+                    coordination and risk assessment. MedGraph Navigator is a
+                    next-generation healthcare analytics platform that harnesses
+                    the power of graph databases and large language models
+                    (LLMs) to provide medical professionals with deep,
+                    actionable insights into patient data.
                   </p>
                   <p>
                     Using GraphRAG technology, we combine the power of graph
