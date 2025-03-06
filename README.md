@@ -52,30 +52,40 @@ MedGraph Navigator follows a modern, layered architecture:
 
 ```mermaid
 graph TB
-    User([User]) --> NextApp["Next.js Application"]
-
+    User([👤 User]) --> NextApp[["⚛️ Next.js App"]]
+    
     subgraph "Frontend Layer"
-        NextApp --> Pages["Pages (Home, Patient Explorer, Query, Analytics)"]
-        NextApp --> Components["UI Components"]
+        NextApp --> Pages["📄 Pages"]
+        NextApp --> Components["🧩 UI Components"]
     end
-
+    
     subgraph "API Layer"
-        NextApp --> APIRoutes["Next.js API Routes"]
-        APIRoutes --> QueryAPI["Query Processing API"]
-        APIRoutes --> PatientAPI["Patient Data APIs"]
-        APIRoutes --> AnalyticsAPI["Analytics APIs"]
+        NextApp --> APIRoutes["🔌 API Routes"]
+        APIRoutes --> QueryAPI["🔍 Query API"]
+        APIRoutes --> PatientAPI["👨‍⚕️ Patient API"]
+        APIRoutes --> AnalyticsAPI["📊 Analytics API"]
     end
-
+    
     subgraph "Integration Layer"
-        QueryAPI --> LangChain["LangChain Integration"]
-        LangChain --> TogetherAI["Together AI (LLM)"]
-        APIRoutes --> ArangoClient["ArangoDB Client"]
+        QueryAPI --> LangChain["🦜️ LangChain"]
+        LangChain --> TogetherAI["🤖 Together AI"]
+        APIRoutes --> ArangoClient["📦 ArangoDB Client"]
+    end
+    
+    subgraph "Data Layer"
+        ArangoClient --> ArangoDB[("🗄️ ArangoDB")]
+        ArangoDB --> MedicalData["💊 Medical Graph Data"]
     end
 
-    subgraph "Data Layer"
-        ArangoClient --> ArangoDB["ArangoDB Graph Database"]
-        ArangoDB --> MedicalData["Medical Graph Data"]
-    end
+    classDef frontend fill:#d6e4ff,stroke:#9cb2eb,stroke-width:1px;
+    classDef api fill:#ffe6cc,stroke:#d79b00,stroke-width:1px;
+    classDef integration fill:#d5e8d4,stroke:#82b366,stroke-width:1px;
+    classDef database fill:#e1d5e7,stroke:#9673a6,stroke-width:1px;
+
+    class Pages,Components,NextApp frontend;
+    class APIRoutes,QueryAPI,PatientAPI,AnalyticsAPI api;
+    class LangChain,TogetherAI,ArangoClient integration;
+    class ArangoDB,MedicalData database;
 ```
 
 ## 🔧 Installation & Setup
