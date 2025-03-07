@@ -51,82 +51,86 @@ export default function PatientsExplorer() {
   const observerTarget = useRef<HTMLDivElement>(null);
 
   // Function to fetch patients with pagination
-  const fetchPatients = async (page: number, isInitialLoad = false) => {
-    if (isInitialLoad) {
-      setIsLoading(true);
-      setLoadingPercentage(10);
-    } else {
-      setIsLoadingMore(true);
-    }
-
-    try {
-      // Simulate progress for initial load
-      let progressInterval: NodeJS.Timeout | null = null;
+  const fetchPatients = useCallback(
+    async (page: number, isInitialLoad = false) => {
       if (isInitialLoad) {
-        progressInterval = setInterval(() => {
-          setLoadingPercentage((prev) => (prev < 90 ? prev + 15 : prev));
-        }, 700);
-      }
-
-      const response = await fetch(
-        `/api/patients?page=${page}&limit=${pagination.limit}`
-      );
-
-      if (isInitialLoad && progressInterval) {
-        clearInterval(progressInterval);
-        setLoadingPercentage(95);
-      }
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch patients");
-      }
-
-      const data = await response.json();
-
-      if (isInitialLoad) {
-        setLoadingPercentage(100);
-      }
-
-      // Ensure data is in the expected format
-      const newPatients = Array.isArray(data.patients)
-        ? data.patients
-        : data.data || data.patients || data.results || [];
-
-      // Update pagination information
-      if (data.pagination) {
-        setPagination(data.pagination);
-        setHasMore(data.pagination.page < data.pagination.pages);
+        setIsLoading(true);
+        setLoadingPercentage(10);
       } else {
-        setHasMore(false);
+        setIsLoadingMore(true);
       }
 
-      // Append new patients to existing list for infinite scroll
-      if (isInitialLoad) {
-        setPatients(newPatients);
-      } else {
-        setPatients((prevPatients) => [...prevPatients, ...newPatients]);
+      try {
+        // Simulate progress for initial load
+        let progressInterval: NodeJS.Timeout | null = null;
+        if (isInitialLoad) {
+          progressInterval = setInterval(() => {
+            setLoadingPercentage((prev) => (prev < 90 ? prev + 15 : prev));
+          }, 700);
+        }
+
+        const response = await fetch(
+          `/api/patients?page=${page}&limit=${pagination.limit}`
+        );
+
+        if (isInitialLoad && progressInterval) {
+          clearInterval(progressInterval);
+          setLoadingPercentage(95);
+        }
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch patients");
+        }
+
+        const data = await response.json();
+
+        if (isInitialLoad) {
+          setLoadingPercentage(100);
+        }
+
+        // Ensure data is in the expected format
+        const newPatients = Array.isArray(data.patients)
+          ? data.patients
+          : data.data || data.patients || data.results || [];
+
+        // Update pagination information
+        if (data.pagination) {
+          setPagination(data.pagination);
+          setHasMore(data.pagination.page < data.pagination.pages);
+        } else {
+          setHasMore(false);
+        }
+
+        // Append new patients to existing list for infinite scroll
+        if (isInitialLoad) {
+          setPatients(newPatients);
+        } else {
+          setPatients((prevPatients) => [...prevPatients, ...newPatients]);
+        }
+      } catch (error) {
+        console.error("Error fetching patients:", error);
+        if (isInitialLoad) {
+          // Fallback to empty array if initial fetch fails
+          setPatients([]);
+        }
+      } finally {
+        // Short delay to show 100% before hiding loader
+        if (isInitialLoad) {
+          setTimeout(() => {
+            setIsLoading(false);
+          }, 300);
+        } else {
+          setIsLoadingMore(false);
+        }
       }
-    } catch (error) {
-      console.error("Error fetching patients:", error);
-      if (isInitialLoad) {
-        // Fallback to empty array if initial fetch fails
-        setPatients([]);
-      }
-    } finally {
-      // Short delay to show 100% before hiding loader
-      if (isInitialLoad) {
-        setTimeout(() => {
-          setIsLoading(false);
-        }, 300);
-      } else {
-        setIsLoadingMore(false);
-      }
-    }
-  };
+    },
+    [pagination.limit]
+  );
 
   // Initial load
   useEffect(() => {
     fetchPatients(1, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Intersection Observer for infinite scrolling
@@ -137,7 +141,7 @@ export default function PatientsExplorer() {
         fetchPatients(pagination.page + 1);
       }
     },
-    [hasMore, isLoadingMore, pagination.page]
+    [hasMore, isLoadingMore, pagination.page, fetchPatients]
   );
 
   // Set up the intersection observer
