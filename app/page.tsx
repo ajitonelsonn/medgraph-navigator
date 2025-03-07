@@ -84,11 +84,18 @@ export default function Home() {
   const [stats, setStats] = useState<DatabaseStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null); // State to hold error message
+  const [loadingPercentage, setLoadingPercentage] = useState(0);
 
   useEffect(() => {
     const fetchDatabaseStats = async () => {
+      setLoadingPercentage(10); // Start at 10%
       try {
+        // Simulate progress steps
+        const timer1 = setTimeout(() => setLoadingPercentage(30), 500);
+        const timer2 = setTimeout(() => setLoadingPercentage(60), 1000);
+
         // Use the cache utility to get or fetch dashboard stats
+        setLoadingPercentage(80);
         const data = await getCachedData<DatabaseStats>(
           "dashboard-stats",
           async () => {
@@ -98,7 +105,12 @@ export default function Home() {
           }
         );
 
+        setLoadingPercentage(100);
         setStats(data);
+
+        // Clear timers
+        clearTimeout(timer1);
+        clearTimeout(timer2);
       } catch (error: any) {
         console.error("Error fetching database statistics:", error);
 
@@ -121,7 +133,8 @@ export default function Home() {
           apiStatus: false,
         });
       } finally {
-        setIsLoading(false);
+        // Short delay to show 100% before hiding loader
+        setTimeout(() => setIsLoading(false), 300);
       }
     };
 
@@ -132,13 +145,21 @@ export default function Home() {
   const handleRefresh = async () => {
     setIsLoading(true);
     setError(null);
+    setLoadingPercentage(0);
 
     try {
+      // Simulate progress
+      setLoadingPercentage(15);
+      const timer1 = setTimeout(() => setLoadingPercentage(40), 400);
+      const timer2 = setTimeout(() => setLoadingPercentage(75), 800);
+
       // Force fresh data by bypassing cache
+      setLoadingPercentage(90);
       const freshData = await fetchDataWithTimeout<DatabaseStats>(
         "/api/dashboard/stats"
       );
       setStats(freshData);
+      setLoadingPercentage(100);
 
       // Update cache with fresh data
       localStorage.setItem(
@@ -148,6 +169,10 @@ export default function Home() {
           timestamp: Date.now(),
         })
       );
+
+      // Clear timers
+      clearTimeout(timer1);
+      clearTimeout(timer2);
     } catch (error: any) {
       console.error("Error refreshing data:", error);
 
@@ -173,7 +198,8 @@ export default function Home() {
         });
       }
     } finally {
-      setIsLoading(false);
+      // Short delay to show 100% before hiding loader
+      setTimeout(() => setIsLoading(false), 300);
     }
   };
 
@@ -236,6 +262,13 @@ export default function Home() {
               className="animate-pulse"
             />
             <p className="text-indigo-600 mt-4 font-medium">Loading data...</p>
+            <div className="w-48 bg-gray-200 rounded-full h-2.5 mt-2">
+              <div
+                className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                style={{ width: `${loadingPercentage}%` }}
+              ></div>
+            </div>
+            <p className="text-gray-500 text-sm mt-1">{loadingPercentage}%</p>
           </div>
         ) : (
           <>

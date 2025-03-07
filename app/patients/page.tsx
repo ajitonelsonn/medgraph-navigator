@@ -29,17 +29,32 @@ export default function PatientsExplorer() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+  const [loadingPercentage, setLoadingPercentage] = useState(0);
+  const [loadingPatientPercentage, setLoadingPatientPercentage] = useState(0);
 
   // Fetch actual data from the database
   useEffect(() => {
     const fetchPatients = async () => {
       setIsLoading(true);
+      setLoadingPercentage(10);
+
       try {
+        // Simulate progress
+        const progressInterval = setInterval(() => {
+          setLoadingPercentage((prev) => (prev < 90 ? prev + 15 : prev));
+        }, 700);
+
         const response = await fetch("/api/patients");
+
+        clearInterval(progressInterval);
+        setLoadingPercentage(95);
+
         if (!response.ok) {
           throw new Error("Failed to fetch patients");
         }
+
         const data = await response.json();
+        setLoadingPercentage(100);
 
         // Ensure data is in the expected format
         const formattedData = Array.isArray(data)
@@ -52,7 +67,10 @@ export default function PatientsExplorer() {
         // Fallback to empty array if fetch fails
         setPatients([]);
       } finally {
-        setIsLoading(false);
+        // Short delay to show 100% before hiding loader
+        setTimeout(() => {
+          setIsLoading(false);
+        }, 300);
       }
     };
 
@@ -77,18 +95,34 @@ export default function PatientsExplorer() {
   const fetchPatientDetails = async (patientId: string) => {
     setIsLoadingPatient(true);
     setSelectedPatient(null);
+    setLoadingPatientPercentage(0);
 
     try {
+      // Simulate progress
+      setLoadingPatientPercentage(15);
+      const progressInterval = setInterval(() => {
+        setLoadingPatientPercentage((prev) => (prev < 90 ? prev + 20 : prev));
+      }, 600);
+
       const response = await fetch(`/api/patients/${patientId}`);
+
+      clearInterval(progressInterval);
+      setLoadingPatientPercentage(95);
+
       if (!response.ok) {
         throw new Error("Failed to fetch patient details");
       }
+
       const patientData = await response.json();
+      setLoadingPatientPercentage(100);
       setSelectedPatient(patientData);
     } catch (error) {
       console.error("Error fetching patient details:", error);
     } finally {
-      setIsLoadingPatient(false);
+      // Short delay to show 100% before hiding loader
+      setTimeout(() => {
+        setIsLoadingPatient(false);
+      }, 300);
     }
   };
 
@@ -137,6 +171,15 @@ export default function PatientsExplorer() {
                 />
                 <p className="text-indigo-600 mt-4 font-medium">
                   Loading data...
+                </p>
+                <div className="w-48 bg-gray-200 rounded-full h-2.5 mt-2">
+                  <div
+                    className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                    style={{ width: `${loadingPercentage}%` }}
+                  ></div>
+                </div>
+                <p className="text-gray-500 text-sm mt-1">
+                  {loadingPercentage}%
                 </p>
               </div>
             ) : (
@@ -206,6 +249,15 @@ export default function PatientsExplorer() {
                 />
                 <p className="text-indigo-600 mt-4 font-medium">
                   Loading patient data...
+                </p>
+                <div className="w-48 bg-gray-200 rounded-full h-2.5 mt-2">
+                  <div
+                    className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                    style={{ width: `${loadingPatientPercentage}%` }}
+                  ></div>
+                </div>
+                <p className="text-gray-500 text-sm mt-1">
+                  {loadingPatientPercentage}%
                 </p>
               </div>
             ) : selectedPatient ? (

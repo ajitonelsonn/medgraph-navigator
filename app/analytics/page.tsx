@@ -113,6 +113,7 @@ export default function Analytics() {
   const [activeTab, setActiveTab] = useState("demographics");
   const [timeRange, setTimeRange] = useState("all");
   const [error, setError] = useState<string | null>(null);
+  const [loadingPercentage, setLoadingPercentage] = useState(0);
 
   // Initialize with proper default values for each data structure
   const [data, setData] = useState<AnalyticsData>({
@@ -143,9 +144,19 @@ export default function Analytics() {
   useEffect(() => {
     setIsLoading(true);
     setError(null);
+    setLoadingPercentage(0);
 
     async function fetchData() {
       try {
+        // Simulate progressive loading
+        setLoadingPercentage(10);
+        const progressInterval = setInterval(() => {
+          setLoadingPercentage((prev) => {
+            // Don't go above 90% until data actually arrives
+            return prev < 90 ? prev + 10 : prev;
+          });
+        }, 800);
+
         // Create a cache key that includes both tab and time range
         const cacheKey = `analytics-${activeTab}-${timeRange}`;
 
@@ -159,6 +170,10 @@ export default function Analytics() {
         // Get data from cache or fetch it if not cached/expired
         const newData = await getCachedData<any>(cacheKey, fetchFn);
 
+        // Complete the loading
+        clearInterval(progressInterval);
+        setLoadingPercentage(100);
+
         setData((prevData) => ({
           ...prevData,
           [activeTab]: newData,
@@ -168,11 +183,12 @@ export default function Analytics() {
         setError(`Failed to load data: ${error.message}`);
 
         // Provide fallback data in case of error
-        setData((prevData) => ({
-          ...prevData,
-        }));
+        setData((prevData) => ({ ...prevData }));
       } finally {
-        setIsLoading(false);
+        // Short delay to show 100% before hiding loader
+        setTimeout(() => {
+          setIsLoading(false);
+        }, 300);
       }
     }
 
@@ -183,12 +199,20 @@ export default function Analytics() {
   const handleRefresh = async () => {
     setIsLoading(true);
     setError(null);
+    setLoadingPercentage(0);
 
     try {
+      // Simulate progress
+      setLoadingPercentage(15);
+      const timer1 = setTimeout(() => setLoadingPercentage(40), 400);
+      const timer2 = setTimeout(() => setLoadingPercentage(75), 800);
+
       // Force fresh data by bypassing cache
+      setLoadingPercentage(85);
       const newData = await fetchDataWithTimeout<any>(
         `/api/analytics/${activeTab}?timeRange=${timeRange}&fresh=true`
       );
+      setLoadingPercentage(100);
 
       // Update data state
       setData((prevData) => ({
@@ -205,11 +229,18 @@ export default function Analytics() {
           timestamp: Date.now(),
         })
       );
+
+      // Clear timers
+      clearTimeout(timer1);
+      clearTimeout(timer2);
     } catch (error: any) {
       console.error("Error refreshing data:", error);
       setError(`Failed to refresh data: ${error.message}`);
     } finally {
-      setIsLoading(false);
+      // Short delay to show 100% before hiding loader
+      setTimeout(() => {
+        setIsLoading(false);
+      }, 300);
     }
   };
 
@@ -719,6 +750,13 @@ export default function Analytics() {
               <p className="text-indigo-600 mt-4 font-medium">
                 Loading data...
               </p>
+              <div className="w-48 bg-gray-200 rounded-full h-2.5 mt-2">
+                <div
+                  className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                  style={{ width: `${loadingPercentage}%` }}
+                ></div>
+              </div>
+              <p className="text-gray-500 text-sm mt-1">{loadingPercentage}%</p>
             </div>
           ) : (
             <div className="max-w-7xl mx-auto">
