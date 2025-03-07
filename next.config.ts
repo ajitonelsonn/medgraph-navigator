@@ -3,13 +3,13 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  serverExternalPackages: ["arangojs"],
   experimental: {
-    serverComponentsExternalPackages: ["arangojs"],
+    // Any other experimental options can remain here
   },
   webpack: (config, { isServer }) => {
     // Handle any Node.js specific modules for server-side
     if (isServer) {
-      // Add any server-specific optimizations if needed
     }
 
     return config;
