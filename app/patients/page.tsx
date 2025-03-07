@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Navigation from "../components/Navigation";
 import { Search, Filter, ChevronDown, ChevronRight } from "lucide-react";
 import Image from "next/image";
@@ -23,59 +23,139 @@ interface PatientSectionProps {
   items: string[];
 }
 
+interface PaginationInfo {
+  page: number;
+  limit: number;
+  total: number;
+  pages: number;
+}
+
 export default function PatientsExplorer() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingPatient, setIsLoadingPatient] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [loadingPercentage, setLoadingPercentage] = useState(0);
   const [loadingPatientPercentage, setLoadingPatientPercentage] = useState(0);
+  const [pagination, setPagination] = useState<PaginationInfo>({
+    page: 1,
+    limit: 20,
+    total: 0,
+    pages: 0,
+  });
+  const [hasMore, setHasMore] = useState(true);
 
-  // Fetch actual data from the database
-  useEffect(() => {
-    const fetchPatients = async () => {
+  // Create a ref for the observer target (last item in the list)
+  const observerTarget = useRef<HTMLDivElement>(null);
+
+  // Function to fetch patients with pagination
+  const fetchPatients = async (page: number, isInitialLoad = false) => {
+    if (isInitialLoad) {
       setIsLoading(true);
       setLoadingPercentage(10);
+    } else {
+      setIsLoadingMore(true);
+    }
 
-      try {
-        // Simulate progress
-        const progressInterval = setInterval(() => {
+    try {
+      // Simulate progress for initial load
+      let progressInterval: NodeJS.Timeout | null = null;
+      if (isInitialLoad) {
+        progressInterval = setInterval(() => {
           setLoadingPercentage((prev) => (prev < 90 ? prev + 15 : prev));
         }, 700);
+      }
 
-        const response = await fetch("/api/patients");
+      const response = await fetch(
+        `/api/patients?page=${page}&limit=${pagination.limit}`
+      );
 
+      if (isInitialLoad && progressInterval) {
         clearInterval(progressInterval);
         setLoadingPercentage(95);
+      }
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch patients");
-        }
+      if (!response.ok) {
+        throw new Error("Failed to fetch patients");
+      }
 
-        const data = await response.json();
+      const data = await response.json();
+
+      if (isInitialLoad) {
         setLoadingPercentage(100);
+      }
 
-        // Ensure data is in the expected format
-        const formattedData = Array.isArray(data)
-          ? data
-          : data.data || data.patients || data.results || [];
+      // Ensure data is in the expected format
+      const newPatients = Array.isArray(data.patients)
+        ? data.patients
+        : data.data || data.patients || data.results || [];
 
-        setPatients(formattedData);
-      } catch (error) {
-        console.error("Error fetching patients:", error);
-        // Fallback to empty array if fetch fails
+      // Update pagination information
+      if (data.pagination) {
+        setPagination(data.pagination);
+        setHasMore(data.pagination.page < data.pagination.pages);
+      } else {
+        setHasMore(false);
+      }
+
+      // Append new patients to existing list for infinite scroll
+      if (isInitialLoad) {
+        setPatients(newPatients);
+      } else {
+        setPatients((prevPatients) => [...prevPatients, ...newPatients]);
+      }
+    } catch (error) {
+      console.error("Error fetching patients:", error);
+      if (isInitialLoad) {
+        // Fallback to empty array if initial fetch fails
         setPatients([]);
-      } finally {
-        // Short delay to show 100% before hiding loader
+      }
+    } finally {
+      // Short delay to show 100% before hiding loader
+      if (isInitialLoad) {
         setTimeout(() => {
           setIsLoading(false);
         }, 300);
+      } else {
+        setIsLoadingMore(false);
       }
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    fetchPatients(1, true);
+  }, []);
+
+  // Intersection Observer for infinite scrolling
+  const handleObserver = useCallback(
+    (entries: IntersectionObserverEntry[]) => {
+      const [target] = entries;
+      if (target.isIntersecting && hasMore && !isLoadingMore) {
+        fetchPatients(pagination.page + 1);
+      }
+    },
+    [hasMore, isLoadingMore, pagination.page]
+  );
+
+  // Set up the intersection observer
+  useEffect(() => {
+    const element = observerTarget.current;
+    const option = {
+      root: null,
+      rootMargin: "0px",
+      threshold: 0.5,
     };
 
-    fetchPatients();
-  }, []);
+    const observer = new IntersectionObserver(handleObserver, option);
+    if (element) observer.observe(element);
+
+    return () => {
+      if (element) observer.unobserve(element);
+    };
+  }, [handleObserver, patients]);
 
   // Improved filtering with proper type checks
   const filteredPatients = Array.isArray(patients)
@@ -147,7 +227,7 @@ export default function PatientsExplorer() {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search patients by name or condition..."
+                placeholder="Search patients by ID or condition..."
                 className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
@@ -185,47 +265,74 @@ export default function PatientsExplorer() {
             ) : (
               <div className="divide-y">
                 {filteredPatients.length > 0 ? (
-                  filteredPatients.map((patient) => (
-                    <button
-                      key={patient.id}
-                      onClick={() => fetchPatientDetails(patient.id)}
-                      className={`w-full text-left p-4 hover:bg-indigo-50 transition-colors ${
-                        selectedPatient?.id === patient.id ? "bg-indigo-50" : ""
-                      }`}
-                    >
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <h3 className="font-medium text-gray-900">
-                            {patient.name || `Patient ${patient.id}`}
-                          </h3>
-                          <div className="mt-1 flex items-center text-sm text-gray-500 space-x-2">
-                            <span>
-                              {patient.gender === "M" ? "Male" : "Female"}
-                            </span>
-                            <span>•</span>
-                            <span>
-                              {calculateAge(patient.birthdate)} years old
-                            </span>
-                            <span>•</span>
-                            <span className="capitalize">{patient.race}</span>
+                  <>
+                    {filteredPatients.map((patient) => (
+                      <button
+                        key={patient.id}
+                        onClick={() => fetchPatientDetails(patient.id)}
+                        className={`w-full text-left p-4 hover:bg-indigo-50 transition-colors ${
+                          selectedPatient?.id === patient.id
+                            ? "bg-indigo-50"
+                            : ""
+                        }`}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h3 className="font-medium text-gray-900">
+                              {patient.name || `Patient ${patient.id}`}
+                            </h3>
+                            <div className="mt-1 flex items-center text-sm text-gray-500 space-x-2">
+                              <span>
+                                {patient.gender === "M" ? "Male" : "Female"}
+                              </span>
+                              <span>•</span>
+                              <span>
+                                {calculateAge(patient.birthdate)} years old
+                              </span>
+                              <span>•</span>
+                              <span className="capitalize">{patient.race}</span>
+                            </div>
                           </div>
+                          <ChevronRight className="h-5 w-5 text-gray-400" />
                         </div>
-                        <ChevronRight className="h-5 w-5 text-gray-400" />
-                      </div>
 
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {Array.isArray(patient.conditions) &&
-                          patient.conditions.map((condition, i) => (
-                            <span
-                              key={i}
-                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
-                            >
-                              {condition}
-                            </span>
-                          ))}
-                      </div>
-                    </button>
-                  ))
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {Array.isArray(patient.conditions) &&
+                            patient.conditions.map((condition, i) => (
+                              <span
+                                key={i}
+                                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
+                              >
+                                {condition}
+                              </span>
+                            ))}
+                        </div>
+                      </button>
+                    ))}
+
+                    {/* Observer target for infinite scroll */}
+                    <div
+                      ref={observerTarget}
+                      className="w-full p-4 text-center"
+                    >
+                      {isLoadingMore ? (
+                        <div className="flex justify-center items-center">
+                          <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                          <span className="ml-2 text-sm text-gray-600">
+                            Loading more patients...
+                          </span>
+                        </div>
+                      ) : hasMore ? (
+                        <span className="text-sm text-gray-500">
+                          Scroll down to load more
+                        </span>
+                      ) : (
+                        <span className="text-sm text-gray-500">
+                          No more patients to load
+                        </span>
+                      )}
+                    </div>
+                  </>
                 ) : (
                   <div className="p-8 text-center">
                     <p className="text-gray-500">
