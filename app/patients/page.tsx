@@ -327,9 +327,12 @@ export default function PatientsExplorer() {
                           </span>
                         </div>
                       ) : hasMore ? (
-                        <span className="text-sm text-gray-500">
-                          Scroll down to load more
-                        </span>
+                        <button
+                          onClick={() => fetchPatients(pagination.page + 1)}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm"
+                        >
+                          Load More Patients
+                        </button>
                       ) : (
                         <span className="text-sm text-gray-500">
                           No more patients to load
