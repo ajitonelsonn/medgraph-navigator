@@ -11,6 +11,159 @@ const llm = new TogetherAI({
   maxTokens: 1024,
 });
 
+// Function to directly generate optimized query for common patterns
+function generateOptimizedQueryForCommonPatterns(
+  userQuery: string
+): string | null {
+  const lowercaseQuery = userQuery.toLowerCase();
+
+  // Extract condition if present
+  let conditionTerm = "";
+  if (lowercaseQuery.includes("diabetes")) {
+    conditionTerm = "diabetes";
+  } else if (lowercaseQuery.includes("hypertension")) {
+    conditionTerm = "hypertension";
+  } else if (lowercaseQuery.includes("otitis")) {
+    conditionTerm = "otitis";
+  } else if (lowercaseQuery.includes("asthma")) {
+    conditionTerm = "asthma";
+  } else if (
+    lowercaseQuery.includes("heart disease") ||
+    lowercaseQuery.includes("cardiac")
+  ) {
+    conditionTerm = "heart";
+  } else if (
+    lowercaseQuery.includes("condition") &&
+    !lowercaseQuery.includes("count") &&
+    !lowercaseQuery.startsWith("how many")
+  ) {
+    // Generic condition case, but not for counting queries
+    // Extract potential condition term after "condition" word
+    const afterCondition = lowercaseQuery.split("condition")[1];
+    if (afterCondition && afterCondition.trim()) {
+      // Use first word after "condition" as potential condition term
+      const words = afterCondition.trim().split(/\s+/);
+      if (words.length > 0) {
+        conditionTerm = words[0].replace(/[^\w]/g, ""); // Remove non-word chars
+      }
+    }
+
+    if (!conditionTerm) {
+      conditionTerm = "condition"; // Fallback
+    }
+  } else {
+    // No recognized condition term
+    return null;
+  }
+
+  // Extract year if present
+  const yearMatches = userQuery.match(/\b(19|20)\d{2}\b/g);
+  const yearFilter =
+    yearMatches && yearMatches.length > 0
+      ? `FILTER CONTAINS(SUBSTRING(patient.BIRTHDATE, 0, 4), "${yearMatches[0]}")`
+      : "";
+
+  // Extract gender if present
+  let genderFilter = "";
+  if (lowercaseQuery.includes(" male") || lowercaseQuery.includes("males")) {
+    genderFilter = `FILTER patient.GENDER == 'M'`;
+  } else if (
+    lowercaseQuery.includes("female") ||
+    lowercaseQuery.includes("females")
+  ) {
+    genderFilter = `FILTER patient.GENDER == 'F'`;
+  }
+
+  // Extract race if present
+  let raceFilter = "";
+  const races = ["white", "black", "asian", "hispanic", "native", "other"];
+  for (const race of races) {
+    if (lowercaseQuery.includes(race)) {
+      raceFilter = `FILTER CONTAINS(LOWER(patient.RACE), "${race}")`;
+      break;
+    }
+  }
+
+  // Generate optimized query
+  return `
+    LET entity = "${conditionTerm}"
+    
+    // Get all matching conditions first
+    LET matching_conditions = (
+      FOR doc IN MedGraph_node
+        FILTER doc.type == "condition"
+        FILTER LOWER(doc.DESCRIPTION) LIKE CONCAT("%", LOWER(entity), "%")
+        LIMIT 10000
+        RETURN doc
+    )
+    
+    // Process patient lookup in a separate phase
+    FOR condition IN matching_conditions
+      // Find encounter edges
+      LET encounter_edges = (
+        FOR enc_edge IN MedGraph_node_to_MedGraph_node
+          FILTER enc_edge._to == condition._id
+          FILTER enc_edge.relationship_type == 'ENCOUNTER_CONDITION'
+          LIMIT 2
+          RETURN enc_edge
+      )
+      
+      FILTER LENGTH(encounter_edges) > 0
+      
+      LET encounter = DOCUMENT(encounter_edges[0]._from)
+      
+      // Find patient edges
+      LET patient_edges = (
+        FOR pat_edge IN MedGraph_node_to_MedGraph_node
+          FILTER pat_edge._to == encounter._id
+          FILTER pat_edge.relationship_type == 'PATIENT_ENCOUNTER'
+          LIMIT 1
+          RETURN pat_edge
+      )
+      
+      FILTER LENGTH(patient_edges) > 0
+      
+      LET patient = DOCUMENT(patient_edges[0]._from)
+      
+      FILTER patient.type == 'patient'
+      ${yearFilter}
+      ${genderFilter}
+      ${raceFilter}
+      
+      LIMIT 15
+      RETURN DISTINCT {
+        id: patient.ID,
+        gender: patient.GENDER,
+        birthdate: patient.BIRTHDATE,
+        race: patient.RACE,
+        condition: condition.DESCRIPTION
+      }
+  `;
+}
+
+// Function to determine if a query might benefit from the optimized pattern
+function isComplexRelationshipQuery(query: string): boolean {
+  if (!query) {
+    return false; // Handle null or empty query case explicitly
+  }
+
+  const lowercaseQuery = query.toLowerCase();
+
+  // Check if it's likely a complex query involving conditions, encounters, and patients
+  return (
+    (lowercaseQuery.includes("patient") &&
+      lowercaseQuery.includes("condition")) ||
+    (lowercaseQuery.includes("diabetes") &&
+      (lowercaseQuery.includes("patient") ||
+        lowercaseQuery.includes("birthdate"))) ||
+    (lowercaseQuery.includes("disease") &&
+      lowercaseQuery.includes("patient")) ||
+    (lowercaseQuery.includes("year") && lowercaseQuery.includes("condition")) ||
+    (lowercaseQuery.match(/\b(19|20)\d{2}\b/g) !== null &&
+      lowercaseQuery.includes("condition"))
+  );
+}
+
 // Database schema for prompting
 function getGraphSchema(): string {
   // Schema unchanged from original code
@@ -63,6 +216,229 @@ function getGraphSchema(): string {
          FILTER node.type == 'patient'
          RETURN DATE_DIFF(DATE_NOW(), DATE_TIMESTAMP(node.BIRTHDATE), "year")
        )
+
+    6. List patients with specific demographics:
+       FOR node IN MedGraph_node
+         FILTER node.type == 'patient'
+         FILTER node.GENDER == 'F' OR node.GENDER == 'M'
+         SORT node.BIRTHDATE DESC
+         LIMIT 15
+         RETURN { 
+           id: node.ID, 
+           gender: node.GENDER, 
+           birthdate: node.BIRTHDATE, 
+           race: node.RACE 
+         }
+
+    7. Find patients with specific conditions:
+       FOR node IN MedGraph_node
+         FILTER node.type == 'condition'
+         FILTER LOWER(node.DESCRIPTION) LIKE '%otitis media%'
+         FOR patient IN MedGraph_node
+           FILTER patient.type == 'patient' 
+           FILTER patient.id == node.PATIENT || patient._id == node.PATIENT
+           LIMIT 15
+           RETURN {
+             condition: node.DESCRIPTION,
+             code: node.CODE,
+             patient_id: patient.id,
+             gender: patient.GENDER,
+             race: patient.RACE,
+             birthdate: patient.BIRTHDATE
+           }
+
+    8. Graph traversal for conditions and patients:
+       FOR condition IN MedGraph_node
+         FILTER condition.type == 'condition'
+         FILTER CONTAINS(LOWER(condition.DESCRIPTION), "diabetes")
+         FOR encounter IN INBOUND condition MedGraph_node_to_MedGraph_node
+           FILTER encounter.type == 'encounter'
+           FOR patient IN INBOUND encounter MedGraph_node_to_MedGraph_node
+             FILTER patient.type == 'patient'
+             LIMIT 15
+             RETURN DISTINCT {
+               patient_id: patient.ID,
+               gender: patient.GENDER,
+               birthdate: patient.BIRTHDATE,
+               condition: condition.DESCRIPTION
+             }
+
+    9. Using variables for filtering:
+       LET queryIntent = { gender: "F" }
+       FOR node IN MedGraph_node
+         FILTER node.type == 'patient' AND node.GENDER == queryIntent.gender
+         SORT node.BIRTHDATE DESC
+         LIMIT 15
+         RETURN { 
+           id: node.ID, 
+           gender: node.GENDER, 
+           birthdate: node.BIRTHDATE, 
+           race: node.RACE 
+         }
+
+    10. Advanced condition to patient relationship query:
+        LET entity = "diabetes"
+        // Get all matching conditions first
+        LET matching_conditions = (
+          FOR doc IN MedGraph_node
+            FILTER doc.type == "condition"
+            FILTER LOWER(doc.DESCRIPTION) LIKE CONCAT("%", LOWER(entity), "%")
+            LIMIT 100
+            RETURN doc
+        )
+        
+        // Then process patient lookup in a separate phase
+        FOR condition IN matching_conditions
+          // Find encounter edges that connect to this condition
+          LET encounter_edges = (
+            FOR enc_edge IN MedGraph_node_to_MedGraph_node
+              FILTER enc_edge._to == condition._id
+              FILTER enc_edge.relationship_type == 'ENCOUNTER_CONDITION'
+              LIMIT 2
+              RETURN enc_edge
+          )
+          
+          FILTER LENGTH(encounter_edges) > 0
+          
+          LET encounter = DOCUMENT(encounter_edges[0]._from)
+          
+          // Find patient edges that connect to this encounter
+          LET patient_edges = (
+            FOR pat_edge IN MedGraph_node_to_MedGraph_node
+              FILTER pat_edge._to == encounter._id
+              FILTER pat_edge.relationship_type == 'PATIENT_ENCOUNTER'
+              LIMIT 1
+              RETURN pat_edge
+          )
+          
+          FILTER LENGTH(patient_edges) > 0
+          
+          LET patient = DOCUMENT(patient_edges[0]._from)
+          
+          LIMIT 15
+          RETURN DISTINCT {
+            id: patient.ID,
+            gender: patient.GENDER,
+            race: patient.RACE,
+            condition: condition.DESCRIPTION
+          }
+          
+    11. OPTIMIZED QUERY PATTERN - For complex relationship queries:
+        // AVOID THIS SLOW APPROACH:
+        // FOR condition IN MedGraph_node
+        //   FILTER condition.type == 'condition'
+        //   FILTER CONTAINS(LOWER(condition.DESCRIPTION), "diabetes")
+        //   FOR encounter IN INBOUND condition MedGraph_node_to_MedGraph_node
+        //     FILTER encounter.type == 'encounter'
+        //     FOR patient IN INBOUND encounter MedGraph_node_to_MedGraph_node
+        //       FILTER patient.type == 'patient'
+        //       FILTER CONTAINS(SUBSTRING(patient.BIRTHDATE, 0, 4), "1964")
+        //       LIMIT 15
+        //       RETURN DISTINCT { ... }
+        
+        // USE THIS FASTER APPROACH INSTEAD:
+        LET entity = "diabetes"
+        // Step 1: Get all matching conditions first
+        LET matching_conditions = (
+          FOR doc IN MedGraph_node
+            FILTER doc.type == "condition"
+            FILTER LOWER(doc.DESCRIPTION) LIKE CONCAT("%", LOWER(entity), "%")
+            LIMIT 10000
+            RETURN doc
+        )
+        
+        // Step 2: Process patient lookup in a separate phase
+        FOR condition IN matching_conditions
+          // Find encounter edges that connect to this condition
+          LET encounter_edges = (
+            FOR enc_edge IN MedGraph_node_to_MedGraph_node
+              FILTER enc_edge._to == condition._id
+              FILTER enc_edge.relationship_type == 'ENCOUNTER_CONDITION'
+              LIMIT 2
+              RETURN enc_edge
+          )
+          
+          FILTER LENGTH(encounter_edges) > 0
+          
+          LET encounter = DOCUMENT(encounter_edges[0]._from)
+          
+          // Find patient edges that connect to this encounter
+          LET patient_edges = (
+            FOR pat_edge IN MedGraph_node_to_MedGraph_node
+              FILTER pat_edge._to == encounter._id
+              FILTER pat_edge.relationship_type == 'PATIENT_ENCOUNTER'
+              LIMIT 1
+              RETURN pat_edge
+          )
+          
+          FILTER LENGTH(patient_edges) > 0
+          
+          LET patient = DOCUMENT(patient_edges[0]._from)
+          
+          // Step 3: Apply filters at the final stage
+          FILTER patient.type == 'patient'
+          FILTER CONTAINS(SUBSTRING(patient.BIRTHDATE, 0, 4), "1964")
+          
+          LIMIT 15
+          RETURN DISTINCT {
+            id: patient.ID,
+            gender: patient.GENDER,
+            birthdate: patient.BIRTHDATE,
+            race: patient.RACE,
+            condition: condition.DESCRIPTION
+          }
+          
+    12. PATIENTS WITH DIABETES BORN IN SPECIFIC YEAR:
+        // This is the optimized pattern for queries about patients with conditions and birth year
+        LET entity = "diabetes"
+        
+        // Step 1: Get matching conditions
+        LET matching_conditions = (
+          FOR doc IN MedGraph_node
+            FILTER doc.type == "condition"
+            FILTER LOWER(doc.DESCRIPTION) LIKE CONCAT("%", LOWER(entity), "%")
+            LIMIT 10000
+            RETURN doc
+        )
+        
+        // Step 2: Process patient lookup in stages
+        FOR condition IN matching_conditions
+          LET encounter_edges = (
+            FOR enc_edge IN MedGraph_node_to_MedGraph_node
+              FILTER enc_edge._to == condition._id
+              FILTER enc_edge.relationship_type == 'ENCOUNTER_CONDITION'
+              LIMIT 2
+              RETURN enc_edge
+          )
+          
+          FILTER LENGTH(encounter_edges) > 0
+          
+          LET encounter = DOCUMENT(encounter_edges[0]._from)
+          
+          LET patient_edges = (
+            FOR pat_edge IN MedGraph_node_to_MedGraph_node
+              FILTER pat_edge._to == encounter._id
+              FILTER pat_edge.relationship_type == 'PATIENT_ENCOUNTER'
+              LIMIT 1
+              RETURN pat_edge
+          )
+          
+          FILTER LENGTH(patient_edges) > 0
+          
+          LET patient = DOCUMENT(patient_edges[0]._from)
+          
+          // Step 3: Apply birth year filter
+          FILTER patient.type == 'patient'
+          FILTER CONTAINS(SUBSTRING(patient.BIRTHDATE, 0, 4), "1964")
+          
+          LIMIT 15
+          RETURN DISTINCT {
+            id: patient.ID,
+            gender: patient.GENDER,
+            birthdate: patient.BIRTHDATE,
+            race: patient.RACE,
+            condition: condition.DESCRIPTION
+          }
   `;
 }
 
@@ -116,7 +492,12 @@ function determineQueryType(queryText: string): string {
     lowercaseQuery.startsWith("list") ||
     lowercaseQuery.startsWith("show") ||
     lowercaseQuery.startsWith("get") ||
-    lowercaseQuery.includes("find")
+    lowercaseQuery.includes("find") ||
+    lowercaseQuery.includes("patients with") ||
+    (lowercaseQuery.includes("patient") &&
+      (lowercaseQuery.includes("diabetes") ||
+        lowercaseQuery.includes("condition") ||
+        lowercaseQuery.includes("disease")))
   ) {
     return "data";
   } else {
@@ -160,6 +541,24 @@ function isValidResult(
       return birthdate && typeof birthdate === "string" && birthdate.length > 0;
     });
     return hasValidBirthdates;
+  }
+
+  // For condition-specific queries
+  if (
+    originalQuery.toLowerCase().includes("condition") ||
+    originalQuery.toLowerCase().includes("diabetes") ||
+    originalQuery.toLowerCase().includes("otitis")
+  ) {
+    // Check if the results contain condition information
+    const hasConditionInfo = results.some((item) => {
+      const condition =
+        item.condition ||
+        item.CONDITION ||
+        item.Description ||
+        item.DESCRIPTION;
+      return condition && typeof condition === "string" && condition.length > 0;
+    });
+    return hasConditionInfo;
   }
 
   // For year-specific queries
@@ -207,6 +606,25 @@ async function generateBetterQuery(
   errorMessage: string,
   attempt: number
 ): Promise<string> {
+  // First, check if this is a condition + year query that should use the optimized pattern
+  const lowerQuery = originalQuery.toLowerCase();
+  const hasCondition =
+    lowerQuery.includes("condition") ||
+    lowerQuery.includes("diabetes") ||
+    lowerQuery.includes("otitis") ||
+    lowerQuery.includes("disease");
+  const hasYear = lowerQuery.match(/\b(19|20)\d{2}\b/g) !== null;
+
+  // If it's a condition + year query, directly use optimized pattern
+  if (hasCondition && hasYear) {
+    const optimizedQuery =
+      generateOptimizedQueryForCommonPatterns(originalQuery);
+    if (optimizedQuery) {
+      console.log("Using optimized query pattern for condition + year query");
+      return optimizedQuery;
+    }
+  }
+
   try {
     const prompt = `
       You're a database expert. The following AQL query didn't produce the expected results:
@@ -229,6 +647,12 @@ async function generateBetterQuery(
       5. Specifically for questions about gender, include a filter for valid gender values: FILTER node.GENDER == 'M' OR node.GENDER == 'F'
       6. For year specific queries, make sure to include a FILTER with CONTAINS or LIKE to check for the year
       7. Return properties with appropriate capitalization (birthdate: node.BIRTHDATE, gender: node.GENDER)
+      8. For condition queries, use LOWER() with CONTAINS() or LIKE to make case-insensitive matches
+      9. When traversing relationships, use proper edge collections like MedGraph_node_to_MedGraph_node
+      10. For complex relationships like finding patients with conditions, consider using temporary variables with LET
+      11. For complex queries involving conditions and patients, always use the optimized pattern shown in example #11 and #12
+      12. Break down complex queries into stages using LET statements for better performance
+      13. For questions involving patients with conditions AND birth years, always use the optimized pattern in example #12
       
       IMPROVED AQL QUERY:
     `;
@@ -238,14 +662,88 @@ async function generateBetterQuery(
   } catch (error) {
     console.error("Error generating better query:", error);
 
-    // Fallback improvement if LLM fails
-    if (originalQuery.toLowerCase().includes("gender")) {
+    // Check if this is a condition + year query again as fallback
+    if (hasCondition) {
+      // Extract condition term
+      let conditionTerm = "condition";
+      if (lowerQuery.includes("diabetes")) {
+        conditionTerm = "diabetes";
+      } else if (lowerQuery.includes("otitis")) {
+        conditionTerm = "otitis";
+      } else if (lowerQuery.includes("hypertension")) {
+        conditionTerm = "hypertension";
+      }
+
+      // Extract year if present
+      const yearMatches = originalQuery.match(/\b(19|20)\d{2}\b/g);
+      const yearFilter =
+        yearMatches && yearMatches.length > 0
+          ? `FILTER CONTAINS(SUBSTRING(patient.BIRTHDATE, 0, 4), "${yearMatches[0]}")`
+          : "";
+
+      // Fallback to hardcoded optimized pattern
+      return `
+        LET entity = "${conditionTerm}"
+        
+        // Get all matching conditions first
+        LET matching_conditions = (
+          FOR doc IN MedGraph_node
+            FILTER doc.type == "condition"
+            FILTER LOWER(doc.DESCRIPTION) LIKE CONCAT("%", LOWER(entity), "%")
+            LIMIT 10000
+            RETURN doc
+        )
+        
+        // Process patient lookup in a separate phase
+        FOR condition IN matching_conditions
+          // Find encounter edges
+          LET encounter_edges = (
+            FOR enc_edge IN MedGraph_node_to_MedGraph_node
+              FILTER enc_edge._to == condition._id
+              FILTER enc_edge.relationship_type == 'ENCOUNTER_CONDITION'
+              LIMIT 2
+              RETURN enc_edge
+          )
+          
+          FILTER LENGTH(encounter_edges) > 0
+          
+          LET encounter = DOCUMENT(encounter_edges[0]._from)
+          
+          // Find patient edges
+          LET patient_edges = (
+            FOR pat_edge IN MedGraph_node_to_MedGraph_node
+              FILTER pat_edge._to == encounter._id
+              FILTER pat_edge.relationship_type == 'PATIENT_ENCOUNTER'
+              LIMIT 1
+              RETURN pat_edge
+          )
+          
+          FILTER LENGTH(patient_edges) > 0
+          
+          LET patient = DOCUMENT(patient_edges[0]._from)
+          
+          FILTER patient.type == 'patient'
+          ${yearFilter}
+          
+          LIMIT 15
+          RETURN DISTINCT {
+            id: patient.ID,
+            gender: patient.GENDER,
+            birthdate: patient.BIRTHDATE,
+            race: patient.RACE,
+            condition: condition.DESCRIPTION
+          }
+      `;
+    }
+
+    // Fallback for gender queries
+    if (lowerQuery.includes("gender")) {
       return `
         FOR node IN MedGraph_node
           FILTER node.type == 'patient' AND (node.GENDER == 'M' OR node.GENDER == 'F')
           SORT node.BIRTHDATE DESC
-          LIMIT 10
-          RETURN { birthdate: node.BIRTHDATE, gender: node.GENDER }
+          LIMIT 15
+          RETURN { birthdate: node.BIRTHDATE, gender: node.GENDER, race: node.RACE }
       `;
     }
 
@@ -268,7 +766,7 @@ async function generateBetterQuery(
         FILTER node.type == 'patient'
         SORT node.BIRTHDATE DESC
         LIMIT 10
-        RETURN { id: node.ID, birthdate: node.BIRTHDATE, gender: node.GENDER }
+        RETURN { id: node.ID, birthdate: node.BIRTHDATE, gender: node.GENDER, race: node.RACE }
     `;
   }
 }
@@ -369,65 +867,259 @@ export async function POST(request: NextRequest) {
       thought = `This question requires analysis of data patterns in the MedGraph database.`;
     }
 
-    // Generate initial AQL query from natural language using LLM
-    const prompt = `
-      You're a database expert. Transform this question into a proper AQL query for an ArangoDB medical database:
-      Question: ${userQuery}
-
-      ${getGraphSchema()}
-
-      IMPORTANT RULES:
-      1. Provide ONLY the working AQL query, nothing else
-      2. All node types (patient, condition, etc.) are lowercase
-      3. All properties (GENDER, RACE, etc.) are UPPERCASE
-      4. For gender, use 'M' and 'F', not 'Male' and 'Female'
-      5. When querying for patients with gender, always include the filter: FILTER node.GENDER == 'M' OR node.GENDER == 'F'
-      6. Return properties with their original case (birthdate: node.BIRTHDATE)
-      7. Don't use terms like "white" as gender values, they are race values
-      8. For year specific queries (like birth year), use CONTAINS or LIKE operator
-      
-      AQL QUERY:
-    `;
-
-    try {
-      // Get the initial query from LLM
-      const generation = await llm.invoke(prompt);
-      aqlQuery = cleanAqlQuery(generation);
+    // PRE-PROCESS: Check if this is a common pattern that should use the optimized approach
+    // Like patients with a condition born in a specific year
+    const directOptimizedQuery =
+      generateOptimizedQueryForCommonPatterns(userQuery);
+    if (directOptimizedQuery) {
+      console.log(
+        "Using direct optimized query pattern based on query pattern recognition"
+      );
+      aqlQuery = directOptimizedQuery;
       attemptHistory.push(aqlQuery);
-    } catch (error) {
-      console.error("Error generating initial query:", error);
+    } else {
+      // Generate initial AQL query from natural language using LLM
+      const prompt = `
+        You're a database expert. Transform this question into a proper AQL query for an ArangoDB medical database:
+        Question: ${userQuery}
 
-      // Fallback for common query types
-      if (userQuery.toLowerCase().includes("gender")) {
-        aqlQuery = `
-          FOR node IN MedGraph_node
-            FILTER node.type == 'patient' AND (node.GENDER == 'M' OR node.GENDER == 'F')
-            SORT node.BIRTHDATE DESC
-            LIMIT 10
-            RETURN { birthdate: node.BIRTHDATE, gender: node.GENDER }
-        `;
-      } else {
-        aqlQuery = `
-          FOR node IN MedGraph_node
-            FILTER node.type == 'patient'
-            SORT node.BIRTHDATE DESC
-            LIMIT 10
-            RETURN { id: node.ID, birthdate: node.BIRTHDATE, gender: node.GENDER }
-        `;
+        ${getGraphSchema()}
+
+        IMPORTANT RULES:
+        1. Provide ONLY the working AQL query, nothing else
+        2. All node types (patient, condition, etc.) are lowercase
+        3. All properties (GENDER, RACE, etc.) are UPPERCASE
+        4. For gender, use 'M' and 'F', not 'Male' and 'Female'
+        5. When querying for patients with gender, always include the filter: FILTER node.GENDER == 'M' OR node.GENDER == 'F'
+        6. Return properties with their original case (birthdate: node.BIRTHDATE)
+        7. Don't use terms like "white" as gender values, they are race values
+        8. For year specific queries (like birth year), use CONTAINS or LIKE operator
+        9. For condition queries, always use LOWER() and CONTAINS() or LIKE for case-insensitive matching
+        10. For complex relationship traversals, use the example patterns from the schema examples
+        11. For complex queries involving conditions and patients, use the optimized pattern from example #11 to avoid performance issues
+        12. Break down complex queries into stages using LET statements for better performance
+        13. For queries involving patients with conditions AND birth years, always use the optimized pattern in example #12
+        
+        AQL QUERY:
+      `;
+
+      try {
+        // Get the initial query from LLM
+        const generation = await llm.invoke(prompt);
+        aqlQuery = cleanAqlQuery(generation);
+        attemptHistory.push(aqlQuery);
+      } catch (error) {
+        console.error("Error generating initial query:", error);
+
+        // Check if this query would benefit from optimized pattern
+        const isComplexQuery = isComplexRelationshipQuery(userQuery);
+
+        if (isComplexQuery) {
+          // Use optimized pattern for complex relationship queries
+          const optimizedQuery =
+            generateOptimizedQueryForCommonPatterns(userQuery);
+          if (optimizedQuery) {
+            aqlQuery = optimizedQuery;
+          } else {
+            // Fallback for condition queries with simple pattern
+            const lowercaseQuery = userQuery.toLowerCase();
+            let conditionTerm = lowercaseQuery.includes("diabetes")
+              ? "diabetes"
+              : lowercaseQuery.includes("otitis")
+              ? "otitis"
+              : "condition";
+
+            // Extract year if present
+            const yearMatches = userQuery.match(/\b(19|20)\d{2}\b/g);
+            const yearFilter =
+              yearMatches && yearMatches.length > 0
+                ? `FILTER CONTAINS(SUBSTRING(patient.BIRTHDATE, 0, 4), "${yearMatches[0]}")`
+                : "";
+
+            aqlQuery = `
+              LET entity = "${conditionTerm}"
+              
+              // Get all matching conditions first
+              LET matching_conditions = (
+                FOR doc IN MedGraph_node
+                  FILTER doc.type == "condition"
+                  FILTER LOWER(doc.DESCRIPTION) LIKE CONCAT("%", LOWER(entity), "%")
+                  LIMIT 10000
+                  RETURN doc
+              )
+              
+              // Process patient lookup in a separate phase
+              FOR condition IN matching_conditions
+                // Find encounter edges
+                LET encounter_edges = (
+                  FOR enc_edge IN MedGraph_node_to_MedGraph_node
+                    FILTER enc_edge._to == condition._id
+                    FILTER enc_edge.relationship_type == 'ENCOUNTER_CONDITION'
+                    LIMIT 2
+                    RETURN enc_edge
+                )
+                
+                FILTER LENGTH(encounter_edges) > 0
+                
+                LET encounter = DOCUMENT(encounter_edges[0]._from)
+                
+                // Find patient edges
+                LET patient_edges = (
+                  FOR pat_edge IN MedGraph_node_to_MedGraph_node
+                    FILTER pat_edge._to == encounter._id
+                    FILTER pat_edge.relationship_type == 'PATIENT_ENCOUNTER'
+                    LIMIT 1
+                    RETURN pat_edge
+                )
+                
+                FILTER LENGTH(patient_edges) > 0
+                
+                LET patient = DOCUMENT(patient_edges[0]._from)
+                
+                FILTER patient.type == 'patient'
+                ${yearFilter}
+                
+                LIMIT 15
+                RETURN DISTINCT {
+                  id: patient.ID,
+                  gender: patient.GENDER,
+                  birthdate: patient.BIRTHDATE,
+                  race: patient.RACE,
+                  condition: condition.DESCRIPTION
+                }
+            `;
+          }
+        } else if (userQuery.toLowerCase().includes("gender")) {
+          aqlQuery = `
+            FOR node IN MedGraph_node
+              FILTER node.type == 'patient' AND (node.GENDER == 'M' OR node.GENDER == 'F')
+              SORT node.BIRTHDATE DESC
+              LIMIT 15
+              RETURN { birthdate: node.BIRTHDATE, gender: node.GENDER, race: node.RACE }
+          `;
+        } else {
+          aqlQuery = `
+            FOR node IN MedGraph_node
+              FILTER node.type == 'patient'
+              SORT node.BIRTHDATE DESC
+              LIMIT 15
+              RETURN { id: node.ID, birthdate: node.BIRTHDATE, gender: node.GENDER, race: node.RACE }
+          `;
+        }
+
+        attemptHistory.push(aqlQuery);
       }
-
-      attemptHistory.push(aqlQuery);
     }
 
     // Try executing the query, refining up to maxAttempts times if needed
+    let queryTimedOut = false;
+    let useOptimizedPattern = isComplexRelationshipQuery(userQuery);
+
     while (attempts < maxAttempts) {
       attempts++;
       console.log(`Attempt ${attempts}:`, aqlQuery);
 
       try {
-        // Execute the query
-        const queryResult = await db.query(aqlQuery);
-        result = await queryResult.all();
+        // Execute the query with a timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+          queryTimedOut = true;
+        }, 60000); // 30 second timeout
+
+        let queryResult;
+        try {
+          // Execute the query
+          queryResult = await db.query(aqlQuery);
+          result = await queryResult.all();
+          clearTimeout(timeoutId);
+        } catch (timeoutError) {
+          if (queryTimedOut) {
+            console.log("Query timed out, will try optimized pattern");
+
+            // Force use of optimized pattern for next attempt
+            useOptimizedPattern = true;
+
+            // Extract key information from the query
+            let conditionTerm = "condition";
+            const lowercaseQuery = userQuery.toLowerCase();
+            if (lowercaseQuery.includes("diabetes")) {
+              conditionTerm = "diabetes";
+            } else if (lowercaseQuery.includes("otitis")) {
+              conditionTerm = "otitis";
+            } else if (lowercaseQuery.includes("hypertension")) {
+              conditionTerm = "hypertension";
+            } else if (lowercaseQuery.includes("asthma")) {
+              conditionTerm = "asthma";
+            }
+
+            // Extract year if present
+            const yearMatches = userQuery.match(/\b(19|20)\d{2}\b/g);
+            const yearFilter =
+              yearMatches && yearMatches.length > 0
+                ? `FILTER CONTAINS(SUBSTRING(patient.BIRTHDATE, 0, 4), "${yearMatches[0]}")`
+                : "";
+
+            // Create an optimized query
+            aqlQuery = `
+              LET entity = "${conditionTerm}"
+              
+              // Get all matching conditions first
+              LET matching_conditions = (
+                FOR doc IN MedGraph_node
+                  FILTER doc.type == "condition"
+                  FILTER LOWER(doc.DESCRIPTION) LIKE CONCAT("%", LOWER(entity), "%")
+                  LIMIT 10000
+                  RETURN doc
+              )
+              
+              // Then process patient lookup in a separate phase
+              FOR condition IN matching_conditions
+                // Find encounter edges
+                LET encounter_edges = (
+                  FOR enc_edge IN MedGraph_node_to_MedGraph_node
+                    FILTER enc_edge._to == condition._id
+                    FILTER enc_edge.relationship_type == 'ENCOUNTER_CONDITION'
+                    LIMIT 2
+                    RETURN enc_edge
+                )
+                
+                FILTER LENGTH(encounter_edges) > 0
+                
+                LET encounter = DOCUMENT(encounter_edges[0]._from)
+                
+                // Find patient edges
+                LET patient_edges = (
+                  FOR pat_edge IN MedGraph_node_to_MedGraph_node
+                    FILTER pat_edge._to == encounter._id
+                    FILTER pat_edge.relationship_type == 'PATIENT_ENCOUNTER'
+                    LIMIT 1
+                    RETURN pat_edge
+                )
+                
+                FILTER LENGTH(patient_edges) > 0
+                
+                LET patient = DOCUMENT(patient_edges[0]._from)
+                
+                FILTER patient.type == 'patient'
+                ${yearFilter}
+                
+                LIMIT 15
+                RETURN DISTINCT {
+                  id: patient.ID,
+                  gender: patient.GENDER,
+                  birthdate: patient.BIRTHDATE,
+                  race: patient.RACE,
+                  condition: condition.DESCRIPTION
+                }
+            `;
+
+            attemptHistory.push(aqlQuery);
+            continue; // Skip to next iteration with the new optimized query
+          } else {
+            throw timeoutError; // Re-throw if it's not a timeout
+          }
+        }
 
         // Check if the results look valid/relevant
         if (isValidResult(result, queryType, userQuery)) {
@@ -447,6 +1139,13 @@ export async function POST(request: NextRequest) {
             const yearMatch = userQuery.match(/\b(19|20)\d{2}\b/g);
             const year = yearMatch ? yearMatch[0] : "";
             errorMessage += `Results don't contain the requested year ${year}.`;
+          } else if (
+            userQuery.toLowerCase().includes("condition") ||
+            userQuery.toLowerCase().includes("diabetes") ||
+            userQuery.toLowerCase().includes("disease")
+          ) {
+            errorMessage +=
+              "Results don't contain the expected condition information.";
           } else if (result.length === 0) {
             errorMessage += "No results returned.";
           } else {
@@ -528,8 +1227,29 @@ export async function POST(request: NextRequest) {
       } else if (result.length === 1 && typeof result[0] === "object") {
         if (result[0].race && result[0].count) {
           conclusion = `The most common race is "${result[0].race}" with ${result[0].count} patients.`;
+        } else if (result[0].male && result[0].female) {
+          const total = result[0].male + result[0].female;
+          conclusion = `There are ${result[0].male} male patients (${(
+            (result[0].male / total) *
+            100
+          ).toFixed(1)}%) and ${result[0].female} female patients (${(
+            (result[0].female / total) *
+            100
+          ).toFixed(1)}%).`;
         } else {
           conclusion = `The analysis returned a single result with the requested information.`;
+        }
+      } else if (
+        userQuery.toLowerCase().includes("condition") ||
+        userQuery.toLowerCase().includes("diabetes") ||
+        userQuery.toLowerCase().includes("disease")
+      ) {
+        // For year-specific condition queries
+        const yearMatches = userQuery.match(/\b(19|20)\d{2}\b/g);
+        if (yearMatches && yearMatches.length > 0) {
+          conclusion = `The query returned ${result.length} patients with the specified condition born in ${yearMatches[0]}.`;
+        } else {
+          conclusion = `The query returned ${result.length} patients with the specified condition.`;
         }
       } else {
         conclusion = `The query returned ${result.length} results that match your criteria.`;

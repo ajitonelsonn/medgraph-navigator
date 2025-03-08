@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Send, Loader2, User, Bot, Plus } from "lucide-react";
+import { Send, Loader2, User, Bot, Plus, Info } from "lucide-react";
 import Navigation from "../components/Navigation";
 
 // ---------- TYPE DEFINITIONS ----------
@@ -14,6 +14,7 @@ interface QueryDetails {
   conclusion: string;
   attempts?: number;
   attemptHistory?: string[];
+  formattedResult?: string;
 }
 
 interface Message {
@@ -34,8 +35,13 @@ interface IntentResponse {
 
 /**
  * Formats API response based on result type and query
+ * Enhanced to better handle count queries
  */
-const formatResponse = (result: any[], userQuery: string) => {
+const formatResponse = (
+  result: any[],
+  userQuery: string,
+  queryType?: string
+) => {
   const lowerQuery = userQuery.toLowerCase();
 
   // Empty result check
@@ -43,16 +49,82 @@ const formatResponse = (result: any[], userQuery: string) => {
     return "No results found for your query.";
   }
 
+  // HANDLE COUNT RESULTS
+  const isCountQuery =
+    queryType === "count" ||
+    lowerQuery.startsWith("how many") ||
+    lowerQuery.includes("count") ||
+    lowerQuery.includes("total number");
+
   // Single number result (count query)
   if (
+    isCountQuery &&
     Array.isArray(result) &&
     result.length === 1 &&
     typeof result[0] === "number"
   ) {
-    if (lowerQuery.includes("how many")) {
-      return `There are ${result[0]} records matching your query.`;
+    // Extract what we're counting from the query
+    let countedEntity = "records";
+
+    if (lowerQuery.includes("patient")) {
+      countedEntity = "patients";
+    } else if (lowerQuery.includes("condition")) {
+      countedEntity = "conditions";
+    } else if (lowerQuery.includes("medication")) {
+      countedEntity = "medications";
     }
-    return `The count is ${result[0]}.`;
+
+    return (
+      <div className="space-y-2">
+        <p className="text-lg font-medium">
+          There are{" "}
+          <span className="text-indigo-600 font-bold">
+            {result[0].toLocaleString()}
+          </span>{" "}
+          {countedEntity} matching your criteria.
+        </p>
+      </div>
+    );
+  }
+
+  // Gender distribution object
+  if (
+    Array.isArray(result) &&
+    result.length === 1 &&
+    result[0] &&
+    result[0].hasOwnProperty("male") &&
+    result[0].hasOwnProperty("female")
+  ) {
+    const total = result[0].male + result[0].female;
+    const malePercent = ((result[0].male / total) * 100).toFixed(1);
+    const femalePercent = ((result[0].female / total) * 100).toFixed(1);
+
+    return (
+      <div className="space-y-4">
+        <p className="text-lg">Patient gender distribution:</p>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-blue-50 p-4 rounded-lg shadow-sm">
+            <div className="text-2xl font-bold text-blue-700">
+              {result[0].male.toLocaleString()}
+            </div>
+            <div className="text-sm text-blue-600">
+              Male patients ({malePercent}%)
+            </div>
+          </div>
+          <div className="bg-pink-50 p-4 rounded-lg shadow-sm">
+            <div className="text-2xl font-bold text-pink-700">
+              {result[0].female.toLocaleString()}
+            </div>
+            <div className="text-sm text-pink-600">
+              Female patients ({femalePercent}%)
+            </div>
+          </div>
+        </div>
+        <p className="text-sm text-gray-500">
+          Total: {total.toLocaleString()} patients
+        </p>
+      </div>
+    );
   }
 
   // Single object with count properties
@@ -72,7 +144,6 @@ const formatResponse = (result: any[], userQuery: string) => {
     Array.isArray(result) &&
     result.length > 1 &&
     result[0] &&
-    typeof result[0] === "object" &&
     (result[0].hasOwnProperty("count") || result[0].hasOwnProperty("value"))
   ) {
     return renderDistributionTable(result);
@@ -99,30 +170,56 @@ const formatResponse = (result: any[], userQuery: string) => {
  * Renders a distribution table
  */
 const renderDistributionTable = (result: any[]) => {
+  // Find the category key (first property that's not count or value)
+  const firstObj = result[0];
+  const categoryKey =
+    Object.keys(firstObj).find((key) => key !== "count" && key !== "value") ||
+    "category";
+
+  // Find the count key
+  const countKey = firstObj.hasOwnProperty("count") ? "count" : "value";
+
+  // Calculate total and percentages
+  const total = result.reduce((sum, item) => sum + (item[countKey] || 0), 0);
+
   return (
     <div className="space-y-2">
-      <p>Here is the distribution:</p>
+      <p>Distribution results:</p>
       <table className="w-full border border-collapse">
         <thead className="bg-gray-100">
           <tr>
-            {Object.keys(result[0]).map((key) => (
-              <th key={key} className="border p-2 text-left">
-                {key.charAt(0).toUpperCase() + key.slice(1)}
-              </th>
-            ))}
+            <th className="border p-2 text-left capitalize">{categoryKey}</th>
+            <th className="border p-2 text-right">Count</th>
+            <th className="border p-2 text-right">Percentage</th>
           </tr>
         </thead>
         <tbody>
-          {result.map((item, i) => (
-            <tr key={i}>
-              {Object.entries(item).map(([key, value]) => (
-                <td key={key} className="border p-2">
-                  {value !== null && value !== undefined ? String(value) : "-"}
+          {result.map((item, i) => {
+            const countValue = item[countKey] || 0;
+            const percentage =
+              total > 0 ? ((countValue / total) * 100).toFixed(1) : "0.0";
+            return (
+              <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                <td className="border p-2 font-medium">
+                  {item[categoryKey] || "-"}
                 </td>
-              ))}
-            </tr>
-          ))}
+                <td className="border p-2 text-right">
+                  {countValue.toLocaleString()}
+                </td>
+                <td className="border p-2 text-right">{percentage}%</td>
+              </tr>
+            );
+          })}
         </tbody>
+        <tfoot className="bg-gray-100">
+          <tr>
+            <td className="border p-2 font-bold">Total</td>
+            <td className="border p-2 text-right font-bold">
+              {total.toLocaleString()}
+            </td>
+            <td className="border p-2 text-right font-bold">100%</td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
@@ -135,31 +232,70 @@ const renderGenericTable = (result: any[]) => {
   // Get all possible keys from all objects
   const allKeys = [...new Set(result.flatMap((obj) => Object.keys(obj)))];
 
+  // Sort keys with ID, name, gender, birthdate first, then alphabetically
+  const sortedKeys = allKeys.sort((a, b) => {
+    const keyOrder: Record<string, number> = {
+      id: 1,
+      ID: 1,
+      patient_id: 1,
+      name: 2,
+      gender: 3,
+      GENDER: 3,
+      birthdate: 4,
+      BIRTHDATE: 4,
+      race: 5,
+      RACE: 5,
+      condition: 6,
+      CONDITION: 6,
+      description: 6,
+      DESCRIPTION: 6,
+    };
+
+    const orderA = keyOrder[a] || 100;
+    const orderB = keyOrder[b] || 100;
+
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+
+    return a.localeCompare(b);
+  });
+
+  // Format header keys for better display
+  const formatHeaderKey = (key: string) => {
+    if (key.toUpperCase() === key) {
+      return key.charAt(0).toUpperCase() + key.slice(1).toLowerCase();
+    }
+    return key.charAt(0).toUpperCase() + key.slice(1);
+  };
+
   return (
     <div className="space-y-2">
       <p>Here are the results:</p>
-      <table className="w-full border border-collapse">
-        <thead className="bg-gray-100">
-          <tr>
-            {allKeys.map((key) => (
-              <th key={key} className="border p-2 text-left">
-                {key.charAt(0).toUpperCase() + key.slice(1)}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {result.map((item, i) => (
-            <tr key={i}>
-              {allKeys.map((key) => (
-                <td key={key} className="border p-2">
-                  {formatTableCell(key, item[key])}
-                </td>
+      <div className="overflow-x-auto max-h-96 border border-gray-200 rounded">
+        <table className="w-full border-collapse">
+          <thead className="bg-gray-100 sticky top-0">
+            <tr>
+              {sortedKeys.map((key) => (
+                <th key={key} className="border-b p-2 text-left">
+                  {formatHeaderKey(key)}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {result.map((item, i) => (
+              <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                {sortedKeys.map((key) => (
+                  <td key={key} className="border-t p-2">
+                    {formatTableCell(key, item[key])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };
@@ -174,6 +310,25 @@ const formatTableCell = (key: string, value: any) => {
 
   if (key.toLowerCase().includes("gender") && value === "F") {
     return "Female";
+  }
+
+  // Handle date values
+  if (
+    key.toLowerCase().includes("date") ||
+    key.toLowerCase().includes("birth") ||
+    key.toLowerCase().includes("start") ||
+    key.toLowerCase().includes("stop")
+  ) {
+    if (typeof value === "string" && value.includes("T")) {
+      // Handle ISO dates
+      try {
+        const date = new Date(value);
+        return date.toLocaleDateString();
+      } catch {
+        // Fall back to original value if parsing fails
+        return value !== null && value !== undefined ? String(value) : "-";
+      }
+    }
   }
 
   return value !== null && value !== undefined ? String(value) : "-";
@@ -298,7 +453,7 @@ export default function QueryPage() {
   };
 
   /**
-   * Handles database query responses
+   * Handles database query responses with improved count handling
    */
   const handleDatabaseQueryResponse = async (data: any, userQuery: string) => {
     // Update user message with query details
@@ -306,12 +461,28 @@ export default function QueryPage() {
 
     // Process and display results
     if (data.result && Array.isArray(data.result) && data.result.length > 0) {
+      // Check if the backend provided a pre-formatted result (especially for count queries)
+      if (data.formattedResult) {
+        setConversation((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: data.formattedResult,
+          },
+        ]);
+        return;
+      }
+
       const yearMatches = userQuery.match(/\b(19|20)\d{2}\b/g);
 
       if (hasYearWithNoBirthMatches(yearMatches, userQuery, data.result)) {
         addResponseWithYearWarning(data.result, userQuery, yearMatches![0]);
       } else {
-        addStandardResponse(data.result, userQuery);
+        // Extract query type from action field
+        const queryType = data.action
+          .replace("execute_", "")
+          .replace("_query", "");
+        addStandardResponse(data.result, userQuery, queryType);
       }
     } else {
       addNoResultsResponse();
@@ -335,6 +506,7 @@ export default function QueryPage() {
           conclusion: data.conclusion,
           attempts: data.attempts,
           attemptHistory: data.attemptHistory,
+          formattedResult: data.formattedResult,
         },
       };
       return newConversation;
@@ -390,8 +562,12 @@ export default function QueryPage() {
   /**
    * Adds a standard response to the conversation
    */
-  const addStandardResponse = (result: any[], userQuery: string) => {
-    const formattedResponse = formatResponse(result, userQuery);
+  const addStandardResponse = (
+    result: any[],
+    userQuery: string,
+    queryType?: string
+  ) => {
+    const formattedResponse = formatResponse(result, userQuery, queryType);
 
     setConversation((prev) => [
       ...prev,
@@ -642,23 +818,23 @@ export default function QueryPage() {
 
   const exampleQueries = [
     {
-      text: "What is the most common race among patients?",
-      label: "Most common race",
-      className: "text-indigo-600 bg-indigo-50 hover:bg-indigo-100",
-    },
-    {
       text: "How many patients have the race 'white'?",
-      label: "White patients count",
+      label: "Count white patients",
       className: "text-indigo-600 bg-indigo-50 hover:bg-indigo-100",
     },
     {
-      text: "List 10 patients with their birthdates and genders?",
-      label: "Patient birthdates and genders",
+      text: "What is the distribution of patients by race?",
+      label: "Race distribution",
       className: "text-indigo-600 bg-indigo-50 hover:bg-indigo-100",
     },
     {
-      text: "Show me 5 patients born in 2016",
-      label: "Patients born in 2016",
+      text: "List 10 patients with their birthdates and genders",
+      label: "Patient list",
+      className: "text-indigo-600 bg-indigo-50 hover:bg-indigo-100",
+    },
+    {
+      text: "How many patients are female?",
+      label: "Count female patients",
       className: "text-indigo-600 bg-indigo-50 hover:bg-indigo-100",
     },
   ];
@@ -681,13 +857,15 @@ export default function QueryPage() {
                 Query the medical database using natural language
               </p>
             </div>
-            <button
-              onClick={startNewChat}
-              className="flex items-center px-4 py-2 bg-indigo-50 rounded-md text-indigo-600 hover:bg-indigo-100 transition"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              New Chat
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={startNewChat}
+                className="flex items-center px-4 py-2 bg-indigo-50 rounded-md text-indigo-600 hover:bg-indigo-100 transition"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                New Chat
+              </button>
+            </div>
           </div>
 
           {/* Chat messages */}
@@ -726,16 +904,21 @@ export default function QueryPage() {
               </form>
 
               {/* Example queries */}
-              <div className="mt-4 flex flex-wrap gap-2">
-                {exampleQueries.map((example, index) => (
-                  <button
-                    key={index}
-                    onClick={() => setQuery(example.text)}
-                    className={`text-xs ${example.className} px-3 py-1 rounded-full`}
-                  >
-                    {example.label}
-                  </button>
-                ))}
+              <div className="mt-4">
+                <p className="text-xs text-gray-500 mb-2 flex items-center">
+                  <Info className="h-3 w-3 mr-1" /> Try these example queries:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {exampleQueries.map((example, index) => (
+                    <button
+                      key={index}
+                      onClick={() => setQuery(example.text)}
+                      className={`text-xs ${example.className} px-3 py-1 rounded-full transition-colors duration-200`}
+                    >
+                      {example.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
