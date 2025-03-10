@@ -88,7 +88,7 @@ graph TB
     class ArangoDB,MedicalData database;
 ```
 
-## 🔍 Query Processing Workflow
+## 🔍 MedGraph Query Processing Workflow
 
 ```mermaid
 flowchart TB
@@ -107,78 +107,119 @@ flowchart TB
 
     F3 --> G[Execute Query on Database]
 
-    G --> |Results| H{Result Valid?}
+    G --> |Results| H{Is Query Valid?}
     G --> |Timeout| I[Try Optimized Pattern]
     I --> G
 
-    H --> |Yes| J[Process Results with LLM]
+    H --> |Yes| J[Process Initial Results]
     H --> |No| K[Generate Better Query]
     K --> G
 
-    subgraph "Result Processing"
-        J --> J1{Result Type?}
-        J1 -->|Count Results| J2[Direct Count Processing]
-        J1 -->|Gender Distribution| J3[Format Distribution]
-        J1 -->|List but Should be Count| J4[Try Direct Count Query]
-        J1 -->|Other Results| J5[LLM Analysis]
+    J --> L{LLM Result Analysis}
+    L --> |Results Good| M[Format Final Response]
+    L --> |Results Not Optimal| N[Execute Improved Query]
 
-        J2 --> J6[Format Count Conclusion]
-        J3 --> J6
-        J4 --> J6
-        J5 --> J6
+    N --> O[Get Improved Results]
+    O --> P{Improved Results Valid?}
+    P --> |Yes| Q[Use Improved Results]
+    P --> |No| R[Use Original Results with Warning]
+
+    Q --> M
+    R --> M
+
+    M --> S[Return Response to User]
+
+    subgraph "Result Analysis"
+        L1[Check Result Format]
+        L2[Verify Matches User Intent]
+        L3[Validate Data Quality]
+        L4[Generate Natural Language Conclusion]
     end
 
-    J6 --> L[Return Response to User]
+    L --> L1
+    L1 --> L2
+    L2 --> L3
+    L3 --> L4
 
     classDef llm fill:#f9f,stroke:#333,stroke-width:2px
     classDef database fill:#bbf,stroke:#333,stroke-width:2px
     classDef analysis fill:#bfb,stroke:#333,stroke-width:2px
+    classDef newProcess fill:#ffb,stroke:#333,stroke-width:2px
 
-    class F2,J5 llm
-    class G database
-    class D,H,J1 analysis
+    class F2,L,L1,L2,L3,L4 llm
+    class G,O database
+    class D,H,P analysis
+    class N,Q,R newProcess
 ```
 
-Here's how the query processing workflow functions in our agentic medical database application:
+## MedGraph Query Processing Workflow Explanation
 
-1. **Initial Query Processing**
+This flowchart illustrates the sophisticated AI-powered processing system behind the MedGraph Navigator's natural language processing capabilities. Here's a detailed breakdown of how the query is transformed into database results:
 
-   - The system starts with a user's natural language query
-   - First, it runs intent detection to determine if it's a medical query, greeting, or off-topic
-   - For non-medical queries, it returns a conversational response without querying the database
+### Initial Query Processing
 
-2. **Query Intent Analysis**
+1. **User Query** - The process begins when user submit a natural language question about medical data.
 
-   - For medical queries, the system analyzes the query intent
-   - It extracts query type (count, data, analysis), keywords, filters, and complexity
-   - Based on this intent, it generates an appropriate thought about the query strategy
+2. **Intent Detection** - The system first determines what type of query users are making:
 
-3. **Query Generation with LLM**
+   - If it's a greeting or off-topic question, it responds conversationally without database access
+   - If it's a medical database query, it proceeds to deeper analysis
 
-   - The system creates a targeted prompt based on query intent
-   - The LLM (Llama 3.2 model) generates an AQL query based on this prompt
-   - The generated query is cleaned and prepared for execution
+3. **Query Intent Analysis** - For medical queries, the system analyzes:
 
-4. **Query Execution and Refinement**
+   - Query type (count, data retrieval, or analysis)
+   - Keywords related to medical conditions
+   - Filters like gender, race, birth year
+   - Overall query complexity
 
-   - The query is executed against the ArangoDB database
-   - If it times out, the system tries an optimized pattern
-   - If results are invalid or don't match expectations, it generates a better query
-   - This refinement process continues until valid results are obtained
+4. **Thought Generation** - Based on the intent analysis, the system generates a "thought" that outlines its approach to answering user question.
 
-5. **Result Processing**
+### Query Generation Process
 
-   - The system analyzes the result type and formats it appropriately:
-     - For count results, it directly processes and formats them
-     - For gender distributions, it calculates percentages and formats the data
-     - For lists that should be counts, it tries a direct count query
-     - For other results, it uses the LLM to analyze them
+5. **LLM-based Query Generation** - The system translates user natural language into a database query through several steps:
 
-6. **Response Generation**
-   - Finally, it generates a natural language conclusion
-   - The complete response (including query, results, conclusion, etc.) is returned to the user
+   - **Prompt Creation** - Builds a detailed prompt for the AI with user intent and database schema
+   - **LLM Query Generation** - Uses an advanced large language model to write an AQL database query
+   - **Query Cleaning** - Cleans and validates the query syntax before execution
 
-This workflow demonstrates how the application dynamically adapts to different query types and handles special cases like count queries, ensuring users receive appropriate responses regardless of how the LLM initially formulates the database query.
+6. **Database Execution** - The generated query is run against the medical database.
+
+   - If the query times out, the system attempts an optimized pattern
+   - The system evaluates if the returned results are valid
+
+7. **Query Validation** - If the results don't properly answer user question, the system generates an improved query and tries again.
+
+### Result Processing and Analysis
+
+8. **Initial Result Processing** - When valid results are obtained, they undergo processing.
+
+9. **LLM Result Analysis** - The results are analyzed by an AI to determine quality and relevance:
+
+   - **Format Checking** - Verifies the structure matches what was requested (counts, lists, etc.)
+   - **Intent Verification** - Confirms the results actually answer user original question
+   - **Data Quality Validation** - Identifies any issues with the data itself
+   - **Conclusion Generation** - Creates a natural language explanation of the findings
+
+10. **Result Optimization** (if needed):
+
+    - If the results aren't optimal, an improved query is executed
+    - New improved results are validated
+    - The system decides whether to use the improved results or fall back to the original results with a warning
+
+11. **Response Formatting** - The final results are formatted into an appropriate visualization (tables, charts, counts, etc.)
+
+12. **User Response** - The complete processed results are returned to user with the appropriate visualization.
+
+### Technical Implementation
+
+The system employs different processing types represented by colors in the diagram:
+
+- **Pink (LLM)**: Steps powered by large language models
+- **Blue (Database)**: Database query operations
+- **Green (Analysis)**: Algorithmic analysis operations
+- **Yellow (Process)**: Special processing for improved queries
+
+This sophisticated pipeline ensures that user natural language questions about medical data are accurately translated into database queries, executed efficiently, and the results are thoroughly validated to provide the most accurate and relevant information possible.
 
 ## 🔧 Installation & Setup
 
@@ -243,6 +284,7 @@ MedGraph Navigator allows natural language queries against the medical database:
 - "List 10 patients with their birthdates and genders"
 - "What is the most common race among patients?"
 - "Show me patients born in 2016"
+- "List patients that get diabetes and born in 1964"
 
 ### Analytics Dashboards
 
