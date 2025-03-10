@@ -53,25 +53,25 @@ MedGraph Navigator follows a modern, layered architecture:
 ```mermaid
 graph TB
     User([👤 User]) --> NextApp[["⚛️ Next.js App"]]
-    
+
     subgraph "Frontend Layer"
         NextApp --> Pages["📄 Pages"]
         NextApp --> Components["🧩 UI Components"]
     end
-    
+
     subgraph "API Layer"
         NextApp --> APIRoutes["🔌 API Routes"]
         APIRoutes --> QueryAPI["🔍 Query API"]
         APIRoutes --> PatientAPI["👨‍⚕️ Patient API"]
         APIRoutes --> AnalyticsAPI["📊 Analytics API"]
     end
-    
+
     subgraph "Integration Layer"
         QueryAPI --> LangChain["🦜️ LangChain"]
         LangChain --> TogetherAI["🤖 Together AI"]
         APIRoutes --> ArangoClient["📦 ArangoDB Client"]
     end
-    
+
     subgraph "Data Layer"
         ArangoClient --> ArangoDB[("🗄️ ArangoDB")]
         ArangoDB --> MedicalData["💊 Medical Graph Data"]
@@ -87,6 +87,98 @@ graph TB
     class LangChain,TogetherAI,ArangoClient integration;
     class ArangoDB,MedicalData database;
 ```
+
+## 🔍 Query Processing Workflow
+
+```mermaid
+flowchart TB
+    A[User Query] --> B{Intent Detection}
+    B -->|Greeting/Off-topic| C[Return Conversational Response]
+    B -->|Medical Query| D[Analyze Query Intent]
+
+    D --> E[Generate Thought]
+    E --> F[Generate LLM-based Query]
+
+    subgraph "Query Generation"
+        F --> F1[Generate Prompt based on Intent]
+        F1 --> F2[Use LLM to Generate AQL Query]
+        F2 --> F3[Clean Query]
+    end
+
+    F3 --> G[Execute Query on Database]
+
+    G --> |Results| H{Result Valid?}
+    G --> |Timeout| I[Try Optimized Pattern]
+    I --> G
+
+    H --> |Yes| J[Process Results with LLM]
+    H --> |No| K[Generate Better Query]
+    K --> G
+
+    subgraph "Result Processing"
+        J --> J1{Result Type?}
+        J1 -->|Count Results| J2[Direct Count Processing]
+        J1 -->|Gender Distribution| J3[Format Distribution]
+        J1 -->|List but Should be Count| J4[Try Direct Count Query]
+        J1 -->|Other Results| J5[LLM Analysis]
+
+        J2 --> J6[Format Count Conclusion]
+        J3 --> J6
+        J4 --> J6
+        J5 --> J6
+    end
+
+    J6 --> L[Return Response to User]
+
+    classDef llm fill:#f9f,stroke:#333,stroke-width:2px
+    classDef database fill:#bbf,stroke:#333,stroke-width:2px
+    classDef analysis fill:#bfb,stroke:#333,stroke-width:2px
+
+    class F2,J5 llm
+    class G database
+    class D,H,J1 analysis
+```
+
+Here's how the query processing workflow functions in our agentic medical database application:
+
+1. **Initial Query Processing**
+
+   - The system starts with a user's natural language query
+   - First, it runs intent detection to determine if it's a medical query, greeting, or off-topic
+   - For non-medical queries, it returns a conversational response without querying the database
+
+2. **Query Intent Analysis**
+
+   - For medical queries, the system analyzes the query intent
+   - It extracts query type (count, data, analysis), keywords, filters, and complexity
+   - Based on this intent, it generates an appropriate thought about the query strategy
+
+3. **Query Generation with LLM**
+
+   - The system creates a targeted prompt based on query intent
+   - The LLM (Llama 3.2 model) generates an AQL query based on this prompt
+   - The generated query is cleaned and prepared for execution
+
+4. **Query Execution and Refinement**
+
+   - The query is executed against the ArangoDB database
+   - If it times out, the system tries an optimized pattern
+   - If results are invalid or don't match expectations, it generates a better query
+   - This refinement process continues until valid results are obtained
+
+5. **Result Processing**
+
+   - The system analyzes the result type and formats it appropriately:
+     - For count results, it directly processes and formats them
+     - For gender distributions, it calculates percentages and formats the data
+     - For lists that should be counts, it tries a direct count query
+     - For other results, it uses the LLM to analyze them
+
+6. **Response Generation**
+   - Finally, it generates a natural language conclusion
+   - The complete response (including query, results, conclusion, etc.) is returned to the user
+
+This workflow demonstrates how the application dynamically adapts to different query types and handles special cases like count queries, ensuring users receive appropriate responses regardless of how the LLM initially formulates the database query.
 
 ## 🔧 Installation & Setup
 
