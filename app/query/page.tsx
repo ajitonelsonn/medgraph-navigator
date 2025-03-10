@@ -1,7 +1,16 @@
 "use client";
 
-import React, { useState, useRef } from "react";
-import { Send, Loader2, User, Bot, Plus, Info } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import {
+  Send,
+  Loader2,
+  User,
+  Bot,
+  Plus,
+  Info,
+  CheckCircle,
+  Circle,
+} from "lucide-react";
 import Navigation from "../components/Navigation";
 
 // ---------- TYPE DEFINITIONS ----------
@@ -15,6 +24,7 @@ interface QueryDetails {
   attempts?: number;
   attemptHistory?: string[];
   formattedResult?: string;
+  intent?: any;
 }
 
 interface Message {
@@ -29,6 +39,14 @@ interface IntentResponse {
   confidence: number;
   message: string;
   shouldProcessQuery: boolean;
+}
+
+interface ProcessingStep {
+  id: string;
+  label: string;
+  description: string;
+  completed: boolean;
+  current: boolean;
 }
 
 // ---------- UTILITY FUNCTIONS ----------
@@ -349,7 +367,107 @@ export default function QueryPage() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedMessage, setSelectedMessage] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<string>("thoughts");
+  // In the component state section
+  const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>([
+    {
+      id: "intent",
+      label: "Intent Detection",
+      description:
+        "Determining if this is a medical query, greeting, or conversation",
+      completed: false,
+      current: false,
+    },
+    {
+      id: "analyze",
+      label: "Query Analysis",
+      description: "Extracting intent, filters, and keywords",
+      completed: false,
+      current: false,
+    },
+    {
+      id: "generate",
+      label: "Query Generation",
+      description: "Using AI to translate to database query language",
+      completed: false,
+      current: false,
+    },
+    {
+      id: "execute",
+      label: "Query Execution",
+      description: "Running query against medical database",
+      completed: false,
+      current: false,
+    },
+    {
+      id: "format",
+      label: "Result Processing",
+      description: "Analyzing results with AI to ensure accuracy",
+      completed: false,
+      current: false,
+    },
+  ]);
+  const [showProcessing, setShowProcessing] = useState<boolean>(false);
+  const [currentProcessingIndex, setCurrentProcessingIndex] =
+    useState<number>(0);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  // ---------- PROCESSING STEPS MANAGEMENT ----------
+
+  /**
+   * Updates the current processing step
+   */
+  const setCurrentProcessingStep = (stepId: string) => {
+    setProcessingSteps((prevSteps) =>
+      prevSteps.map((step, index) => {
+        // Mark all previous steps as completed
+        if (index < prevSteps.findIndex((s) => s.id === stepId)) {
+          return { ...step, completed: true, current: false };
+        }
+        // Mark this step as current
+        else if (step.id === stepId) {
+          setCurrentProcessingIndex(index);
+          return { ...step, completed: false, current: true };
+        }
+        // Reset future steps
+        else {
+          return { ...step, completed: false, current: false };
+        }
+      })
+    );
+  };
+
+  /**
+   * Completes the current processing step and moves to the next
+   */
+  const completeCurrentStep = () => {
+    setProcessingSteps((prevSteps) => {
+      const currentIndex = prevSteps.findIndex((step) => step.current);
+      if (currentIndex === -1) return prevSteps;
+
+      const nextIndex = currentIndex + 1;
+
+      return prevSteps.map((step, index) => {
+        if (index < nextIndex) {
+          return { ...step, completed: true, current: false };
+        } else if (index === nextIndex && nextIndex < prevSteps.length) {
+          setCurrentProcessingIndex(nextIndex);
+          return { ...step, completed: false, current: true };
+        } else {
+          return { ...step, completed: false, current: false };
+        }
+      });
+    });
+  };
+
+  /**
+   * Resets the processing steps to their initial state
+   */
+  const resetProcessingSteps = () => {
+    setProcessingSteps((prevSteps) =>
+      prevSteps.map((step) => ({ ...step, completed: false, current: false }))
+    );
+    setCurrentProcessingIndex(0);
+  };
 
   // ---------- EVENT HANDLERS ----------
 
@@ -378,9 +496,13 @@ export default function QueryPage() {
     // Add user message
     addUserMessage(query);
     setIsLoading(true);
+    setShowProcessing(true);
+    resetProcessingSteps();
 
     try {
-      // First, check intent with the intent detection API
+      // STEP 1: Intent Detection
+      setCurrentProcessingStep("intent");
+
       const intentResponse = await fetch("/api/detect-intent", {
         method: "POST",
         headers: {
@@ -392,6 +514,8 @@ export default function QueryPage() {
       if (!intentResponse.ok) {
         throw new Error(`Intent API error: ${intentResponse.status}`);
       }
+
+      completeCurrentStep(); // Intent detection completed
 
       const intentData = (await intentResponse.json()) as IntentResponse;
 
@@ -405,18 +529,66 @@ export default function QueryPage() {
             isGreeting: intentData.intent === "greeting",
           },
         ]);
+
+        // Complete the remaining steps quickly for visualization
+        await simulateRemainingSteps();
       } else {
-        // It's a database query, proceed to the query API
+        // STEP 2: Query Analysis - Extracting intent and structure
+        setCurrentProcessingStep("analyze");
+        await new Promise((resolve) => setTimeout(resolve, 700)); // Small delay for visibility
+        completeCurrentStep();
+
+        // STEP 3: Query Generation - Using LLM to create database query
+        setCurrentProcessingStep("generate");
+
+        // Add slight delay to show the substeps in the UI
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+
+        completeCurrentStep();
+
+        // STEP 4: Query Execution - Running against database
+        setCurrentProcessingStep("execute");
         const data = await fetchQueryResults(query);
+
+        // Check if we needed multiple attempts to get results
+        if (data.attempts > 1) {
+          // Brief delay to show the attempted count in the UI
+          await new Promise((resolve) => setTimeout(resolve, 700));
+        }
+
+        completeCurrentStep();
+
+        // STEP 5: Result Processing with LLM analysis
+        setCurrentProcessingStep("format");
+
+        // Add slight delay to show the processing substeps in the UI
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+
         await handleDatabaseQueryResponse(data, query);
+        completeCurrentStep();
       }
 
-      // Set the selected message to the user query
+      // Select the user message for details viewing
       setSelectedMessage(conversation.length);
     } catch (error) {
       handleQueryError(error);
+
+      // Mark all steps as completed if there's an error
+      setProcessingSteps((steps) =>
+        steps.map((step) => ({ ...step, completed: true, current: false }))
+      );
     } finally {
       finishQueryProcess();
+    }
+  };
+
+  /**
+   * Simulates the remaining processing steps quickly for non-database queries
+   */
+  const simulateRemainingSteps = async () => {
+    for (let i = currentProcessingIndex; i < processingSteps.length; i++) {
+      completeCurrentStep();
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   };
 
@@ -507,6 +679,7 @@ export default function QueryPage() {
           attempts: data.attempts,
           attemptHistory: data.attemptHistory,
           formattedResult: data.formattedResult,
+          intent: data.intent,
         },
       };
       return newConversation;
@@ -613,6 +786,9 @@ export default function QueryPage() {
   const finishQueryProcess = () => {
     setIsLoading(false);
     setQuery("");
+    setTimeout(() => {
+      setShowProcessing(false);
+    }, 500);
 
     // Scroll to bottom
     if (messagesEndRef.current) {
@@ -621,6 +797,244 @@ export default function QueryPage() {
   };
 
   // ---------- RENDER FUNCTIONS ----------
+
+  /**
+   * Renders the processing steps indicator with detailed flow
+   */
+  const renderProcessingSteps = () => {
+    if (!showProcessing) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg shadow-lg p-6 max-w-lg w-full">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">
+            Processing Query: "{query}"
+          </h3>
+
+          <div className="space-y-4">
+            {/* Main Processing Flow */}
+            <div className="space-y-3">
+              {/* Intent Detection */}
+              <div className="border-l-2 border-indigo-500 pl-4 pb-4 relative">
+                <div className="absolute -left-[9px] top-0">
+                  {processingSteps[0].completed ? (
+                    <CheckCircle className="h-4 w-4 bg-white text-green-500" />
+                  ) : processingSteps[0].current ? (
+                    <div className="h-4 w-4 rounded-full bg-indigo-500 animate-pulse"></div>
+                  ) : (
+                    <Circle className="h-4 w-4 bg-white text-gray-300" />
+                  )}
+                </div>
+                <div className="mb-1">
+                  <span
+                    className={`font-medium ${
+                      processingSteps[0].current
+                        ? "text-indigo-600"
+                        : processingSteps[0].completed
+                        ? "text-green-600"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    Intent Detection
+                  </span>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Analyzing if the question is a medical database query,
+                  greeting, or off-topic request.
+                </p>
+              </div>
+
+              {/* Query Analysis - Only show if intent is medical */}
+              {(processingSteps[1].current || processingSteps[1].completed) && (
+                <div className="border-l-2 border-indigo-500 pl-4 pb-4 relative">
+                  <div className="absolute -left-[9px] top-0">
+                    {processingSteps[1].completed ? (
+                      <CheckCircle className="h-4 w-4 bg-white text-green-500" />
+                    ) : processingSteps[1].current ? (
+                      <div className="h-4 w-4 rounded-full bg-indigo-500 animate-pulse"></div>
+                    ) : (
+                      <Circle className="h-4 w-4 bg-white text-gray-300" />
+                    )}
+                  </div>
+                  <div className="mb-1">
+                    <span
+                      className={`font-medium ${
+                        processingSteps[1].current
+                          ? "text-indigo-600"
+                          : processingSteps[1].completed
+                          ? "text-green-600"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      Query Analysis
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    Extracting query components: filters, keywords, and
+                    determining if this is a count, data, or analysis query.
+                  </p>
+                </div>
+              )}
+
+              {/* Query Generation - Only show if previous steps completed */}
+              {(processingSteps[2].current || processingSteps[2].completed) && (
+                <div className="border-l-2 border-indigo-500 pl-4 pb-4 relative">
+                  <div className="absolute -left-[9px] top-0">
+                    {processingSteps[2].completed ? (
+                      <CheckCircle className="h-4 w-4 bg-white text-green-500" />
+                    ) : processingSteps[2].current ? (
+                      <div className="h-4 w-4 rounded-full bg-indigo-500 animate-pulse"></div>
+                    ) : (
+                      <Circle className="h-4 w-4 bg-white text-gray-300" />
+                    )}
+                  </div>
+                  <div className="mb-1">
+                    <span
+                      className={`font-medium ${
+                        processingSteps[2].current
+                          ? "text-indigo-600"
+                          : processingSteps[2].completed
+                          ? "text-green-600"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      Query Generation
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    Using LLM to translate your natural language into a proper
+                    database query language.
+                  </p>
+
+                  {/* Sub-steps for query generation */}
+                  {processingSteps[2].current && (
+                    <div className="mt-2 pl-2 space-y-1 border-l border-dashed border-indigo-300">
+                      <div className="text-xs text-gray-500 flex items-center">
+                        <div className="h-2 w-2 rounded-full bg-indigo-300 mr-2"></div>
+                        <span>Generating query prompt based on intent</span>
+                      </div>
+                      <div className="text-xs text-gray-500 flex items-center">
+                        <div className="h-2 w-2 rounded-full bg-indigo-300 mr-2"></div>
+                        <span>Using LLM to create database query</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Query Execution - Only show if previous steps completed */}
+              {(processingSteps[3].current || processingSteps[3].completed) && (
+                <div className="border-l-2 border-indigo-500 pl-4 pb-4 relative">
+                  <div className="absolute -left-[9px] top-0">
+                    {processingSteps[3].completed ? (
+                      <CheckCircle className="h-4 w-4 bg-white text-green-500" />
+                    ) : processingSteps[3].current ? (
+                      <div className="h-4 w-4 rounded-full bg-indigo-500 animate-pulse"></div>
+                    ) : (
+                      <Circle className="h-4 w-4 bg-white text-gray-300" />
+                    )}
+                  </div>
+                  <div className="mb-1">
+                    <span
+                      className={`font-medium ${
+                        processingSteps[3].current
+                          ? "text-indigo-600"
+                          : processingSteps[3].completed
+                          ? "text-green-600"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      Query Execution
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    Running the generated query against the database and
+                    retrieving results.
+                  </p>
+
+                  {/* Show attempts if any */}
+                  {processingSteps[3].current && (
+                    <div className="mt-2 text-xs text-amber-600">
+                      Optimizing query and retrying...
+                      {conversation.some(
+                        (msg) =>
+                          msg.details?.attempts && msg.details.attempts > 1
+                      ) && (
+                        <span>
+                          {" "}
+                          (Multiple attempts required for accurate results)
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Result Processing - Only show if previous steps completed */}
+              {(processingSteps[4].current || processingSteps[4].completed) && (
+                <div className="border-l-2 border-indigo-500 pl-4 pb-4 relative">
+                  <div className="absolute -left-[9px] top-0">
+                    {processingSteps[4].completed ? (
+                      <CheckCircle className="h-4 w-4 bg-white text-green-500" />
+                    ) : processingSteps[4].current ? (
+                      <div className="h-4 w-4 rounded-full bg-indigo-500 animate-pulse"></div>
+                    ) : (
+                      <Circle className="h-4 w-4 bg-white text-gray-300" />
+                    )}
+                  </div>
+                  <div className="mb-1">
+                    <span
+                      className={`font-medium ${
+                        processingSteps[4].current
+                          ? "text-indigo-600"
+                          : processingSteps[4].completed
+                          ? "text-green-600"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      Result Processing
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    Analyzing results with LLM to ensure they correctly answer
+                    your question.
+                  </p>
+
+                  {/* Sub-steps for result processing */}
+                  {processingSteps[4].current && (
+                    <div className="mt-2 pl-2 space-y-1 border-l border-dashed border-indigo-300">
+                      <div className="text-xs text-gray-500 flex items-center">
+                        <div className="h-2 w-2 rounded-full bg-indigo-300 mr-2"></div>
+                        <span>
+                          Determining result type (count, distribution, data)
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-500 flex items-center">
+                        <div className="h-2 w-2 rounded-full bg-indigo-300 mr-2"></div>
+                        <span>Formatting results for display</span>
+                      </div>
+                      <div className="text-xs text-gray-500 flex items-center">
+                        <div className="h-2 w-2 rounded-full bg-indigo-300 mr-2"></div>
+                        <span>Generating natural language conclusion</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Processing message showing current step */}
+          <div className="mt-4 text-center border-t pt-4">
+            <p className="text-sm font-medium text-indigo-600">
+              {processingSteps.find((step) => step.current)?.description ||
+                "Processing query..."}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   /**
    * Renders the query details panel
@@ -639,12 +1053,13 @@ export default function QueryPage() {
       conclusion,
       attempts,
       attemptHistory,
+      intent,
     } = message.details;
 
     // Switch between tabs
     switch (activeTab) {
       case "thoughts":
-        return renderThoughtsTab(thought, action, attempts, conclusion);
+        return renderThoughtsTab(thought, action, attempts, conclusion, intent);
       case "query":
         return renderQueryTab(query, result, attemptHistory);
       default:
@@ -659,7 +1074,8 @@ export default function QueryPage() {
     thought: string,
     action: string,
     attempts?: number,
-    conclusion?: string
+    conclusion?: string,
+    intent?: any
   ) => {
     return (
       <div className="p-4 space-y-4">
@@ -667,10 +1083,43 @@ export default function QueryPage() {
           <h3 className="text-sm font-semibold text-gray-500 mb-2">Thought:</h3>
           <p className="text-sm text-gray-700">{thought}</p>
         </div>
+
+        {intent && (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-500 mb-2">
+              Intent Analysis:
+            </h3>
+            <div className="bg-gray-50 p-2 rounded text-xs">
+              <p>
+                <span className="font-medium">Type:</span> {intent.queryType}
+              </p>
+              {intent.keywords?.length > 0 && (
+                <p>
+                  <span className="font-medium">Keywords:</span>{" "}
+                  {intent.keywords.join(", ")}
+                </p>
+              )}
+              {Object.keys(intent.filters || {}).length > 0 && (
+                <p>
+                  <span className="font-medium">Filters:</span>{" "}
+                  {Object.entries(intent.filters)
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join(", ")}
+                </p>
+              )}
+              <p>
+                <span className="font-medium">Complexity:</span>{" "}
+                {intent.complexity}
+              </p>
+            </div>
+          </div>
+        )}
+
         <div>
           <h3 className="text-sm font-semibold text-gray-500 mb-2">Action:</h3>
           <p className="text-sm text-gray-700">{action}</p>
         </div>
+
         {attempts && attempts > 1 && (
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-2">
@@ -681,6 +1130,7 @@ export default function QueryPage() {
             </p>
           </div>
         )}
+
         <div>
           <h3 className="text-sm font-semibold text-gray-500 mb-2">
             Conclusion:
@@ -774,17 +1224,17 @@ export default function QueryPage() {
         >
           <div
             className={`
-              flex items-start max-w-xl rounded-lg p-4
-              ${
-                message.role === "user"
-                  ? `bg-indigo-50 cursor-pointer ${
-                      selectedMessage === index ? "ring-2 ring-indigo-300" : ""
-                    }`
-                  : message.isGreeting
-                  ? "bg-indigo-50 bg-opacity-30 shadow"
-                  : "bg-white shadow"
-              }
-            `}
+            flex items-start max-w-xl rounded-lg p-4
+            ${
+              message.role === "user"
+                ? `bg-indigo-50 cursor-pointer ${
+                    selectedMessage === index ? "ring-2 ring-indigo-300" : ""
+                  }`
+                : message.isGreeting
+                ? "bg-indigo-50 bg-opacity-30 shadow"
+                : "bg-white shadow"
+            }
+          `}
           >
             <div
               className={`h-8 w-8 rounded-full flex items-center justify-center mr-3 ${
@@ -972,6 +1422,9 @@ export default function QueryPage() {
           </div>
         </div>
       </div>
+
+      {/* Processing steps overlay */}
+      {renderProcessingSteps()}
     </div>
   );
 }
