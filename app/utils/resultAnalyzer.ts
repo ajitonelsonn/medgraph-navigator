@@ -99,6 +99,38 @@ export async function analyzeQueryResults(
     };
   }
 
+  // For race distribution specifically
+  if (
+    userQuery.toLowerCase().includes("race") &&
+    userQuery.toLowerCase().includes("distribution") &&
+    results.length > 5 &&
+    results.some(
+      (item) =>
+        item.race &&
+        typeof item.race === "string" &&
+        !["white", "black", "asian", "hispanic", "native", "other"].includes(
+          item.race.toLowerCase()
+        )
+    )
+  ) {
+    // There are invalid race values, suggest a better query
+    const improvedQuery = `
+      FOR node IN MedGraph_node 
+      FILTER node.type == 'patient' 
+      AND node.RACE IN ['white', 'black', 'hispanic', 'asian', 'native', 'other'] 
+      COLLECT race = node.RACE WITH COUNT INTO count 
+      SORT count DESC 
+      RETURN { race: race, count: count }
+    `;
+
+    return {
+      isValid: false,
+      conclusion: `The query results contain invalid race values. An improved query would filter for standard race categories only.`,
+      improvedQuery: improvedQuery,
+      explanation: `There appear to be data quality issues with some race values in the database. Filtering for known valid values would provide more meaningful results.`,
+    };
+  }
+
   // Prepare a sample of results for analysis
   // For large result sets, limit to a reasonable sample size
   const resultSample =
@@ -135,6 +167,8 @@ export async function analyzeQueryResults(
     1. For "how many" questions, results should be a count (single number), not a list of records
     2. Results should match all filters (year, gender, race, etc.) mentioned in the query
     3. For condition queries, verify the results include condition information
+    4. For race or demographic distributions, check if there are invalid values mixed in
+    5. Consider data quality issues and if filtering would improve results
 
     Respond in this structured format:
     {
@@ -235,7 +269,8 @@ export async function processQueryResults(
   results: any[],
   intent: QueryIntent,
   attempts: number,
-  attemptHistory: string[]
+  attemptHistory: string[],
+  db: any // Add database parameter to execute improved queries
 ): Promise<{
   query: string;
   result: any[];
@@ -307,36 +342,6 @@ export async function processQueryResults(
     };
   }
 
-  // For count queries that incorrectly returned a list, try to fix them
-  if (
-    intent.queryType === "count" &&
-    userQuery.toLowerCase().includes("how many") &&
-    results.length > 10
-  ) {
-    // We have a count query that returned a list - try to get a proper count
-    let improvedQuery = "";
-
-    if (intent.filters.gender) {
-      improvedQuery = `RETURN LENGTH(FOR node IN MedGraph_node FILTER node.type == 'patient' AND node.GENDER == '${intent.filters.gender}' RETURN 1)`;
-    } else if (intent.filters.race) {
-      improvedQuery = `RETURN LENGTH(FOR node IN MedGraph_node FILTER node.type == 'patient' AND CONTAINS(LOWER(node.RACE), "${intent.filters.race.toLowerCase()}") RETURN 1)`;
-    } else if (intent.keywords.length > 0) {
-      improvedQuery = `RETURN LENGTH(FOR node IN MedGraph_node FILTER node.type == 'condition' AND CONTAINS(LOWER(node.DESCRIPTION), "${intent.keywords[0].toLowerCase()}") RETURN 1)`;
-    } else {
-      improvedQuery = `RETURN LENGTH(FOR node IN MedGraph_node FILTER node.type == 'patient' RETURN 1)`;
-    }
-
-    // Return the list count in the meantime
-    return {
-      query: executedQuery,
-      result: [results.length], // Convert to count
-      conclusion: `There are ${results.length.toLocaleString()} matching records.`,
-      attempts: attempts,
-      attemptHistory: attemptHistory,
-      explanation: `The query returned a list of records. For a more accurate count, a query like: ${improvedQuery} would be better.`,
-    };
-  }
-
   // Analyze results with LLM
   const analysis = await analyzeQueryResults(
     llm,
@@ -363,17 +368,93 @@ export async function processQueryResults(
     const correctedQuery = cleanAqlQuery(analysis.improvedQuery);
     attemptHistory.push(correctedQuery);
 
-    // Since we can't directly execute the query here, we'll return the suggestion
-    return {
-      query: correctedQuery,
-      result: results, // Keep original results
-      conclusion:
-        analysis.conclusion ||
-        "An improved query might better answer your question.",
-      attempts: attempts + 1,
-      attemptHistory: attemptHistory,
-      explanation: analysis.explanation,
-    };
+    try {
+      // Actually execute the improved query
+      console.log("Executing improved query:", correctedQuery);
+      const improvedResult = await db.query(correctedQuery);
+      const improvedData = await improvedResult.all();
+
+      // Special processing for count results
+      if (improvedData.length === 1 && typeof improvedData[0] === "number") {
+        let entityDescription = "patients";
+
+        if (intent.filters.gender === "F") {
+          entityDescription = "female patients";
+        } else if (intent.filters.gender === "M") {
+          entityDescription = "male patients";
+        } else if (intent.filters.race) {
+          entityDescription = `patients with race '${intent.filters.race}'`;
+        }
+
+        return {
+          query: correctedQuery,
+          result: improvedData,
+          conclusion: `There are ${improvedData[0].toLocaleString()} ${entityDescription} in the database.`,
+          attempts: attempts + 1,
+          attemptHistory: attemptHistory,
+          explanation: `The improved query correctly counted ${entityDescription}.`,
+        };
+      }
+
+      // For race or other distributions
+      if (
+        improvedData.length > 0 &&
+        improvedData[0].race !== undefined &&
+        improvedData[0].count !== undefined
+      ) {
+        const totalCount = improvedData.reduce(
+          (sum: number, item: { count: number; race: string }) =>
+            sum + item.count,
+          0
+        );
+        let topCategories = improvedData
+          .slice(0, 3)
+          .map(
+            (item: { count: number; race: string }) =>
+              `${item.race}: ${item.count.toLocaleString()} (${(
+                (item.count / totalCount) *
+                100
+              ).toFixed(1)}%)`
+          )
+          .join(", ");
+
+        return {
+          query: correctedQuery,
+          result: improvedData,
+          conclusion: `Found ${
+            improvedData.length
+          } race categories with a total of ${totalCount.toLocaleString()} patients. Top categories: ${topCategories}.`,
+          attempts: attempts + 1,
+          attemptHistory: attemptHistory,
+          explanation: `The improved query filtered for valid race categories only.`,
+        };
+      }
+
+      // Generic response for other improved results
+      return {
+        query: correctedQuery,
+        result: improvedData,
+        conclusion:
+          analysis.conclusion ||
+          `Found ${improvedData.length} results with the improved query.`,
+        attempts: attempts + 1,
+        attemptHistory: attemptHistory,
+        explanation: analysis.explanation,
+      };
+    } catch (error) {
+      console.error("Error executing improved query:", error);
+      // If improved query fails, return original results with explanation
+      return {
+        query: executedQuery,
+        result: results,
+        conclusion:
+          analysis.conclusion ||
+          `The query returned ${results.length} results, but they may not fully answer your question.`,
+        attempts: attempts,
+        attemptHistory: attemptHistory,
+        explanation: `${analysis.explanation}\n\nImproved query suggestion failed: ${correctedQuery}`,
+      };
+    }
   }
 
   // If no improved query or too many attempts, return with warning

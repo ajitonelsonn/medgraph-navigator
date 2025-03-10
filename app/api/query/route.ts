@@ -7,7 +7,10 @@ import { db } from "@/app/utils/db";
 import { analyzeQueryIntent } from "@/app/utils/queryIntentAnalyzer";
 import { executeQueryWithLLM } from "@/app/utils/queryExecutor";
 import { generateThought } from "@/app/utils/queryUtils";
-import { processQueryResults } from "@/app/utils/resultAnalyzer";
+import {
+  processQueryResults,
+  createDirectCountQuery,
+} from "@/app/utils/resultAnalyzer";
 
 // Initialize LLM
 const llm = new TogetherAI({
@@ -141,97 +144,65 @@ export async function POST(request: NextRequest) {
     // Generate appropriate thought based on query intent
     const thought = generateThought(intent);
 
-    // THIRD STEP: Execute query using LLM-based generation and refinement
-    const { query, result, attempts, attemptHistory } =
-      await executeQueryWithLLM(userQuery, llm, db, intent);
-
-    // FOURTH STEP: Process results
-    let conclusion = "";
-    let finalResult = result;
-
-    // For count queries with single number results, directly format the conclusion
+    // Special handling for direct count queries
     if (
       intent.queryType === "count" &&
-      query.toLowerCase().includes("return length(") &&
-      result.length === 1 &&
-      typeof result[0] === "number"
+      userQuery.toLowerCase().includes("how many")
     ) {
-      conclusion = createCountConclusion(result, intent);
-    }
-    // For count queries with no results, try a direct count
-    else if (
-      intent.queryType === "count" &&
-      (result.length === 0 ||
-        (result.length > 10 && userQuery.toLowerCase().includes("how many")))
-    ) {
-      // Try a direct count query as a fallback
-      let directCountQuery = "";
-
-      if (intent.filters.gender === "F") {
-        directCountQuery = `RETURN LENGTH(FOR node IN MedGraph_node FILTER node.type == 'patient' AND node.GENDER == 'F' RETURN 1)`;
-      } else if (intent.filters.gender === "M") {
-        directCountQuery = `RETURN LENGTH(FOR node IN MedGraph_node FILTER node.type == 'patient' AND node.GENDER == 'M' RETURN 1)`;
-      } else if (intent.filters.race) {
-        directCountQuery = `RETURN LENGTH(FOR node IN MedGraph_node FILTER node.type == 'patient' AND CONTAINS(LOWER(node.RACE), "${intent.filters.race.toLowerCase()}") RETURN 1)`;
-      } else {
-        directCountQuery = `RETURN LENGTH(FOR node IN MedGraph_node FILTER node.type == 'patient' RETURN 1)`;
-      }
-
       try {
-        console.log("Trying direct count query:", directCountQuery);
+        const directCountQuery = createDirectCountQuery(intent);
+
+        // Execute the direct count query
+        console.log("Executing direct count query:", directCountQuery);
         const directResult = await db.query(directCountQuery);
         const countData = await directResult.all();
 
         if (countData.length === 1 && typeof countData[0] === "number") {
-          finalResult = countData;
-          conclusion = createCountConclusion(countData, intent);
-
-          // Add the direct query to the attempt history
-          attemptHistory.push(directCountQuery);
+          // Got a valid direct count, return it immediately
+          return NextResponse.json({
+            thought: thought,
+            action: `execute_count_query`,
+            query: directCountQuery,
+            result: countData,
+            conclusion: createCountConclusion(countData, intent),
+            attempts: 1,
+            attemptHistory: [directCountQuery],
+            intent: intent,
+          } as QueryResponse);
         }
       } catch (countError) {
         console.error("Error executing direct count query:", countError);
+        // Continue with normal processing if direct count fails
       }
     }
-    // For other queries, use LLM analysis
-    else {
-      try {
-        // Process with LLM analysis
-        const processedResults = await processQueryResults(
-          llm,
-          userQuery,
-          query,
-          result,
-          intent,
-          attempts,
-          attemptHistory
-        );
 
-        conclusion = processedResults.conclusion;
-      } catch (analysisError) {
-        console.error("Error processing results with LLM:", analysisError);
+    // THIRD STEP: Execute query using LLM-based generation and refinement
+    const { query, result, attempts, attemptHistory } =
+      await executeQueryWithLLM(userQuery, llm, db, intent);
 
-        // Fallback if LLM analysis fails
-        if (result.length === 0) {
-          conclusion = "No results found for your query.";
-        } else if (result.length === 1 && typeof result[0] === "number") {
-          conclusion = `The count is ${result[0].toLocaleString()}.`;
-        } else {
-          conclusion = `The query returned ${result.length} results.`;
-        }
-      }
-    }
+    // FOURTH STEP: Process results with LLM analysis
+    const processedResults = await processQueryResults(
+      llm,
+      userQuery,
+      query,
+      result,
+      intent,
+      attempts,
+      attemptHistory,
+      db // Pass the database instance to allow executing improved queries
+    );
 
     // Format the response with processed results
     const response: QueryResponse = {
       thought: thought,
       action: `execute_${intent.queryType}_query`,
-      query: query,
-      result: finalResult,
-      attempts: attempts,
-      attemptHistory: attemptHistory,
-      conclusion: conclusion,
+      query: processedResults.query,
+      result: processedResults.result,
+      attempts: processedResults.attempts,
+      attemptHistory: processedResults.attemptHistory,
+      conclusion: processedResults.conclusion,
       intent: intent,
+      explanation: processedResults.explanation,
     };
 
     return NextResponse.json(response);

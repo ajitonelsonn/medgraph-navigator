@@ -367,7 +367,7 @@ export default function QueryPage() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedMessage, setSelectedMessage] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<string>("thoughts");
-  // In the component state section
+  const [attemptCount, setAttemptCount] = useState<number>(1);
   const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>([
     {
       id: "intent",
@@ -380,14 +380,14 @@ export default function QueryPage() {
     {
       id: "analyze",
       label: "Query Analysis",
-      description: "Extracting intent, filters, and keywords",
+      description: "Extracting intent, filters, and medical keywords",
       completed: false,
       current: false,
     },
     {
       id: "generate",
       label: "Query Generation",
-      description: "Using AI to translate to database query language",
+      description: "Using AI to create optimized database query",
       completed: false,
       current: false,
     },
@@ -400,8 +400,8 @@ export default function QueryPage() {
     },
     {
       id: "format",
-      label: "Result Processing",
-      description: "Analyzing results with AI to ensure accuracy",
+      label: "Result Analysis & Processing",
+      description: "Validating results with AI and enhancing if needed",
       completed: false,
       current: false,
     },
@@ -488,6 +488,7 @@ export default function QueryPage() {
 
   /**
    * Handles form submission and API interaction
+   * Follows the updated flowchart workflow with advanced result processing
    */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -498,6 +499,7 @@ export default function QueryPage() {
     setIsLoading(true);
     setShowProcessing(true);
     resetProcessingSteps();
+    setAttemptCount(1); // Reset attempt counter
 
     try {
       // STEP 1: Intent Detection
@@ -535,14 +537,14 @@ export default function QueryPage() {
       } else {
         // STEP 2: Query Analysis - Extracting intent and structure
         setCurrentProcessingStep("analyze");
-        await new Promise((resolve) => setTimeout(resolve, 700)); // Small delay for visibility
+        await new Promise((resolve) => setTimeout(resolve, 800)); // Small delay for visibility
         completeCurrentStep();
 
         // STEP 3: Query Generation - Using LLM to create database query
         setCurrentProcessingStep("generate");
 
         // Add slight delay to show the substeps in the UI
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, 1800));
 
         completeCurrentStep();
 
@@ -552,17 +554,20 @@ export default function QueryPage() {
 
         // Check if we needed multiple attempts to get results
         if (data.attempts > 1) {
+          // Update attempt count for visualization
+          setAttemptCount(data.attempts);
+
           // Brief delay to show the attempted count in the UI
-          await new Promise((resolve) => setTimeout(resolve, 700));
+          await new Promise((resolve) => setTimeout(resolve, 800));
         }
 
         completeCurrentStep();
 
-        // STEP 5: Result Processing with LLM analysis
+        // STEP 5: Result Analysis with LLM and possible improved query execution
         setCurrentProcessingStep("format");
 
         // Add slight delay to show the processing substeps in the UI
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
 
         await handleDatabaseQueryResponse(data, query);
         completeCurrentStep();
@@ -799,23 +804,32 @@ export default function QueryPage() {
   // ---------- RENDER FUNCTIONS ----------
 
   /**
-   * Renders the processing steps indicator with detailed flow
+   * Renders the processing steps indicator with detailed workflow
+   * Follows the complete flow including LLM analysis and result improvement
    */
   const renderProcessingSteps = () => {
     if (!showProcessing) return null;
 
+    // Define the current active query attempt count
+    const currentAttemptCount = attemptCount || 1;
+
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg shadow-lg p-6 max-w-lg w-full">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">
-            Processing Query: "{query}"
-          </h3>
+        <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-medium text-gray-900">
+              Processing Query
+            </h3>
+            <div className="text-sm px-2 py-1 bg-gray-100 rounded-md">
+              Attempt {currentAttemptCount > 1 ? currentAttemptCount : 1}
+            </div>
+          </div>
 
-          <div className="space-y-4">
+          <div className="space-y-5">
             {/* Main Processing Flow */}
-            <div className="space-y-3">
+            <div className="space-y-1">
               {/* Intent Detection */}
-              <div className="border-l-2 border-indigo-500 pl-4 pb-4 relative">
+              <div className="border-l-2 border-indigo-500 pl-4 pb-6 relative">
                 <div className="absolute -left-[9px] top-0">
                   {processingSteps[0].completed ? (
                     <CheckCircle className="h-4 w-4 bg-white text-green-500" />
@@ -838,15 +852,15 @@ export default function QueryPage() {
                     Intent Detection
                   </span>
                 </div>
-                <p className="text-sm text-gray-600">
-                  Analyzing if the question is a medical database query,
-                  greeting, or off-topic request.
+                <p className="text-xs text-gray-600">
+                  Analyzing if this is a medical database query, greeting, or
+                  off-topic request
                 </p>
               </div>
 
               {/* Query Analysis - Only show if intent is medical */}
               {(processingSteps[1].current || processingSteps[1].completed) && (
-                <div className="border-l-2 border-indigo-500 pl-4 pb-4 relative">
+                <div className="border-l-2 border-indigo-500 pl-4 pb-6 relative">
                   <div className="absolute -left-[9px] top-0">
                     {processingSteps[1].completed ? (
                       <CheckCircle className="h-4 w-4 bg-white text-green-500" />
@@ -869,16 +883,36 @@ export default function QueryPage() {
                       Query Analysis
                     </span>
                   </div>
-                  <p className="text-sm text-gray-600">
-                    Extracting query components: filters, keywords, and
-                    determining if this is a count, data, or analysis query.
+                  <p className="text-xs text-gray-600">
+                    Extracting intent components (data type, filters, keywords)
+                    and determining query complexity
                   </p>
+
+                  {processingSteps[1].current && (
+                    <div className="mt-2 space-y-1">
+                      <div className="flex items-center text-xs text-gray-500">
+                        <div className="w-2 h-2 bg-gray-300 rounded-full mr-2"></div>
+                        <span>
+                          Identifying if this is a count, data, or analysis
+                          query
+                        </span>
+                      </div>
+                      <div className="flex items-center text-xs text-gray-500">
+                        <div className="w-2 h-2 bg-gray-300 rounded-full mr-2"></div>
+                        <span>Extracting filters (gender, race, year)</span>
+                      </div>
+                      <div className="flex items-center text-xs text-gray-500">
+                        <div className="w-2 h-2 bg-gray-300 rounded-full mr-2"></div>
+                        <span>Identifying medical condition keywords</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Query Generation - Only show if previous steps completed */}
               {(processingSteps[2].current || processingSteps[2].completed) && (
-                <div className="border-l-2 border-indigo-500 pl-4 pb-4 relative">
+                <div className="border-l-2 border-indigo-500 pl-4 pb-6 relative">
                   <div className="absolute -left-[9px] top-0">
                     {processingSteps[2].completed ? (
                       <CheckCircle className="h-4 w-4 bg-white text-green-500" />
@@ -900,23 +934,39 @@ export default function QueryPage() {
                     >
                       Query Generation
                     </span>
+                    {currentAttemptCount > 1 && (
+                      <span className="ml-2 text-xs text-amber-600 font-normal">
+                        (Attempt {currentAttemptCount})
+                      </span>
+                    )}
                   </div>
-                  <p className="text-sm text-gray-600">
-                    Using LLM to translate your natural language into a proper
-                    database query language.
+                  <p className="text-xs text-gray-600">
+                    Using AI to translate natural language into optimized
+                    database query
                   </p>
 
                   {/* Sub-steps for query generation */}
                   {processingSteps[2].current && (
-                    <div className="mt-2 pl-2 space-y-1 border-l border-dashed border-indigo-300">
-                      <div className="text-xs text-gray-500 flex items-center">
-                        <div className="h-2 w-2 rounded-full bg-indigo-300 mr-2"></div>
-                        <span>Generating query prompt based on intent</span>
+                    <div className="mt-2 space-y-1">
+                      <div className="flex items-center text-xs text-gray-500">
+                        <div className="w-2 h-2 bg-indigo-300 rounded-full mr-2"></div>
+                        <span>Creating LLM prompt with schema information</span>
                       </div>
-                      <div className="text-xs text-gray-500 flex items-center">
-                        <div className="h-2 w-2 rounded-full bg-indigo-300 mr-2"></div>
-                        <span>Using LLM to create database query</span>
+                      <div className="flex items-center text-xs text-pink-500">
+                        <div className="w-2 h-2 bg-pink-300 rounded-full mr-2"></div>
+                        <span>Using LLM to generate AQL database query</span>
                       </div>
+                      <div className="flex items-center text-xs text-gray-500">
+                        <div className="w-2 h-2 bg-gray-300 rounded-full mr-2"></div>
+                        <span>Cleaning and validating query syntax</span>
+                      </div>
+
+                      {currentAttemptCount > 1 && (
+                        <div className="mt-2 text-xs py-1 px-2 bg-amber-50 border border-amber-200 rounded-sm">
+                          Previous query needed improvement. Generating
+                          optimized version...
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -924,7 +974,7 @@ export default function QueryPage() {
 
               {/* Query Execution - Only show if previous steps completed */}
               {(processingSteps[3].current || processingSteps[3].completed) && (
-                <div className="border-l-2 border-indigo-500 pl-4 pb-4 relative">
+                <div className="border-l-2 border-indigo-500 pl-4 pb-6 relative">
                   <div className="absolute -left-[9px] top-0">
                     {processingSteps[3].completed ? (
                       <CheckCircle className="h-4 w-4 bg-white text-green-500" />
@@ -947,32 +997,29 @@ export default function QueryPage() {
                       Query Execution
                     </span>
                   </div>
-                  <p className="text-sm text-gray-600">
-                    Running the generated query against the database and
-                    retrieving results.
+                  <p className="text-xs text-gray-600">
+                    Running query against medical database and retrieving
+                    results
                   </p>
 
-                  {/* Show attempts if any */}
                   {processingSteps[3].current && (
-                    <div className="mt-2 text-xs text-amber-600">
-                      Optimizing query and retrying...
-                      {conversation.some(
-                        (msg) =>
-                          msg.details?.attempts && msg.details.attempts > 1
-                      ) && (
-                        <span>
-                          {" "}
-                          (Multiple attempts required for accurate results)
-                        </span>
-                      )}
+                    <div className="mt-2 space-y-1">
+                      <div className="flex items-center text-xs text-blue-500">
+                        <div className="w-2 h-2 bg-blue-300 rounded-full mr-2"></div>
+                        <span>Executing AQL query on medical database</span>
+                      </div>
+                      <div className="flex items-center text-xs text-gray-500">
+                        <div className="w-2 h-2 bg-gray-300 rounded-full mr-2"></div>
+                        <span>Waiting for results...</span>
+                      </div>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Result Processing - Only show if previous steps completed */}
+              {/* Result Analysis - Only show if previous steps completed */}
               {(processingSteps[4].current || processingSteps[4].completed) && (
-                <div className="border-l-2 border-indigo-500 pl-4 pb-4 relative">
+                <div className="border-l-2 border-indigo-500 pl-4 pb-6 relative">
                   <div className="absolute -left-[9px] top-0">
                     {processingSteps[4].completed ? (
                       <CheckCircle className="h-4 w-4 bg-white text-green-500" />
@@ -992,30 +1039,46 @@ export default function QueryPage() {
                           : "text-gray-500"
                       }`}
                     >
-                      Result Processing
+                      Result Analysis & Processing
                     </span>
                   </div>
-                  <p className="text-sm text-gray-600">
-                    Analyzing results with LLM to ensure they correctly answer
-                    your question.
+                  <p className="text-xs text-gray-600">
+                    Using AI to validate results and ensure they answer your
+                    question
                   </p>
 
                   {/* Sub-steps for result processing */}
                   {processingSteps[4].current && (
-                    <div className="mt-2 pl-2 space-y-1 border-l border-dashed border-indigo-300">
-                      <div className="text-xs text-gray-500 flex items-center">
-                        <div className="h-2 w-2 rounded-full bg-indigo-300 mr-2"></div>
-                        <span>
-                          Determining result type (count, distribution, data)
-                        </span>
+                    <div className="mt-2 space-y-1">
+                      <div className="flex items-center text-xs text-gray-500">
+                        <div className="w-2 h-2 bg-gray-300 rounded-full mr-2"></div>
+                        <span>Checking result format & structure</span>
                       </div>
-                      <div className="text-xs text-gray-500 flex items-center">
-                        <div className="h-2 w-2 rounded-full bg-indigo-300 mr-2"></div>
-                        <span>Formatting results for display</span>
+                      <div className="flex items-center text-xs text-pink-500">
+                        <div className="w-2 h-2 bg-pink-300 rounded-full mr-2"></div>
+                        <span>Verifying if results match query intent</span>
                       </div>
-                      <div className="text-xs text-gray-500 flex items-center">
-                        <div className="h-2 w-2 rounded-full bg-indigo-300 mr-2"></div>
+                      <div className="flex items-center text-xs text-pink-500">
+                        <div className="w-2 h-2 bg-pink-300 rounded-full mr-2"></div>
+                        <span>Validating data quality and relevance</span>
+                      </div>
+
+                      {currentAttemptCount > 1 && (
+                        <div className="flex items-center text-xs text-yellow-600">
+                          <div className="w-2 h-2 bg-yellow-300 rounded-full mr-2"></div>
+                          <span>
+                            Comparing improved results with original results
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center text-xs text-pink-500">
+                        <div className="w-2 h-2 bg-pink-300 rounded-full mr-2"></div>
                         <span>Generating natural language conclusion</span>
+                      </div>
+                      <div className="flex items-center text-xs text-gray-500">
+                        <div className="w-2 h-2 bg-gray-300 rounded-full mr-2"></div>
+                        <span>Formatting final response</span>
                       </div>
                     </div>
                   )}
@@ -1024,8 +1087,28 @@ export default function QueryPage() {
             </div>
           </div>
 
+          {/* Legend */}
+          <div className="mt-4 pt-3 border-t border-gray-200 flex flex-wrap gap-x-4 gap-y-1">
+            <div className="flex items-center text-xs text-gray-500">
+              <div className="w-2 h-2 bg-pink-300 rounded-full mr-1"></div>
+              <span>AI Processing</span>
+            </div>
+            <div className="flex items-center text-xs text-gray-500">
+              <div className="w-2 h-2 bg-blue-300 rounded-full mr-1"></div>
+              <span>Database Operations</span>
+            </div>
+            <div className="flex items-center text-xs text-gray-500">
+              <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+              <span>Completed Steps</span>
+            </div>
+            <div className="flex items-center text-xs text-gray-500">
+              <div className="w-2 h-2 bg-indigo-500 rounded-full mr-1"></div>
+              <span>Current Step</span>
+            </div>
+          </div>
+
           {/* Processing message showing current step */}
-          <div className="mt-4 text-center border-t pt-4">
+          <div className="mt-4 text-center pt-3 border-t border-gray-200">
             <p className="text-sm font-medium text-indigo-600">
               {processingSteps.find((step) => step.current)?.description ||
                 "Processing query..."}
